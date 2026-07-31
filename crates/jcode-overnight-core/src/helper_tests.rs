@@ -253,3 +253,67 @@ fn review_html_builder_includes_core_sections() {
     assert!(html.contains("Finished &lt;task&gt;"));
     assert!(html.contains("verify &lt;things&gt;"));
 }
+
+#[test]
+fn running_run_whose_process_is_gone_reconciles_to_failed() {
+    let now = Utc::now();
+    let mut manifest = test_manifest(now);
+    manifest.status = OvernightRunStatus::Running;
+
+    assert_eq!(
+        reconciled_status(&manifest.status, false),
+        Some(OvernightRunStatus::Failed),
+        "a Running manifest whose recorded process is gone must not keep reporting Running"
+    );
+}
+
+#[test]
+fn cancel_requested_run_whose_process_is_gone_reconciles_to_failed() {
+    // The stuck-cancel case: `/overnight cancel` writes CancelRequested and the
+    // supervisor is what clears it. With the process gone there is no supervisor,
+    // so without reconciliation the run stays CancelRequested forever.
+    let now = Utc::now();
+    let mut manifest = test_manifest(now);
+    manifest.status = OvernightRunStatus::CancelRequested;
+
+    assert_eq!(
+        reconciled_status(&manifest.status, false),
+        Some(OvernightRunStatus::Failed),
+        "a CancelRequested manifest with no live process is unreachable and must resolve"
+    );
+}
+
+#[test]
+fn live_process_leaves_status_untouched() {
+    for status in [
+        OvernightRunStatus::Running,
+        OvernightRunStatus::CancelRequested,
+    ] {
+        assert_eq!(
+            reconciled_status(&status, true),
+            None,
+            "a live process must never have its status rewritten"
+        );
+    }
+}
+
+#[test]
+fn terminal_statuses_are_never_reconciled() {
+    for status in [OvernightRunStatus::Completed, OvernightRunStatus::Failed] {
+        for alive in [true, false] {
+            assert_eq!(
+                reconciled_status(&status, alive),
+                None,
+                "terminal statuses do not depend on process liveness"
+            );
+        }
+    }
+}
+
+#[test]
+fn only_live_process_states_require_a_live_process() {
+    assert!(OvernightRunStatus::Running.requires_live_process());
+    assert!(OvernightRunStatus::CancelRequested.requires_live_process());
+    assert!(!OvernightRunStatus::Completed.requires_live_process());
+    assert!(!OvernightRunStatus::Failed.requires_live_process());
+}
