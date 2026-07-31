@@ -736,7 +736,7 @@ pub fn save_manifest(manifest: &OvernightManifest) -> Result<()> {
 }
 
 pub fn load_manifest(run_id: &str) -> Result<OvernightManifest> {
-    storage::read_json(&manifest_path(run_id)?)
+    storage::read_json(&manifest_path(run_id)?).map(crate::overnight_liveness::reconcile)
 }
 
 pub fn latest_manifest() -> Result<Option<OvernightManifest>> {
@@ -758,7 +758,7 @@ pub fn latest_manifest() -> Result<Option<OvernightManifest>> {
         }
     }
     manifests.sort_by_key(|manifest| manifest.started_at);
-    Ok(manifests.pop())
+    Ok(manifests.pop().map(crate::overnight_liveness::reconcile))
 }
 
 pub fn cancel_latest_run() -> Result<OvernightManifest> {

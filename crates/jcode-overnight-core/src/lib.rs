@@ -41,6 +41,40 @@ impl OvernightRunStatus {
             Self::Failed => "failed",
         }
     }
+
+    /// Whether this status can only be accurate while the process recorded in
+    /// the manifest is still alive.
+    ///
+    /// `Running` and `CancelRequested` are both driven forward by the process
+    /// that owns the run: `Running` advances by taking coordinator turns, and
+    /// `CancelRequested` is cleared when that same process observes the request
+    /// and marks the run completed. Neither can make progress once the process
+    /// is gone, so a manifest left in either state by a crash, a kill, or a
+    /// reboot is stale rather than live.
+    pub fn requires_live_process(&self) -> bool {
+        matches!(self, Self::Running | Self::CancelRequested)
+    }
+}
+
+/// Resolve the status a manifest should actually be reported as, given whether
+/// the process recorded in that manifest is still alive.
+///
+/// Returns `None` when the persisted status is already correct, and
+/// `Some(status)` when it must be rewritten. Keeping this a pure function lets
+/// the decision be tested without spawning processes; the caller supplies
+/// `process_alive` from whatever liveness check its platform offers.
+///
+/// Note that a stale `Running` run resolves to `Failed` rather than
+/// `Completed`: the run did not reach its target or post a morning report, and
+/// reporting it as completed would claim work that never happened.
+pub fn reconciled_status(
+    status: &OvernightRunStatus,
+    process_alive: bool,
+) -> Option<OvernightRunStatus> {
+    if process_alive || !status.requires_live_process() {
+        return None;
+    }
+    Some(OvernightRunStatus::Failed)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
