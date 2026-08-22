@@ -1,0 +1,20 @@
+[package]
+name = "jcode-operator-backend"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+async-trait = "0.1"
+automonique-platform-client = { git = "https://github.com/bext-stack/automonique.git", rev = "d90cd4a9b07cc21f98ad306fc755e31c71f47cfb" }
+automonique-protocol = { git = "https://github.com/bext-stack/automonique.git", rev = "d90cd4a9b07cc21f98ad306fc755e31c71f47cfb" }
+tokio = { version = "1", features = ["macros", "rt", "sync"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "forbid"
+todo = "forbid"
+unimplemented = "forbid"

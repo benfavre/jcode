@@ -366,6 +366,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
+name = "automonique-platform-client"
+version = "0.1.0"
+source = "git+https://github.com/bext-stack/automonique.git?rev=d90cd4a9b07cc21f98ad306fc755e31c71f47cfb#d90cd4a9b07cc21f98ad306fc755e31c71f47cfb"
+dependencies = [
+ "automonique-protocol",
+]
+
+[[package]]
+name = "automonique-protocol"
+version = "0.1.0"
+source = "git+https://github.com/bext-stack/automonique.git?rev=d90cd4a9b07cc21f98ad306fc755e31c71f47cfb#d90cd4a9b07cc21f98ad306fc755e31c71f47cfb"
+
+[[package]]
 name = "aws-config"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3807,6 +3820,16 @@ dependencies = [
  "native-tls",
  "pulldown-cmark",
  "urlencoding",
+]
+
+[[package]]
+name = "jcode-operator-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "automonique-platform-client",
+ "automonique-protocol",
+ "tokio",
 ]
 
 [[package]]
