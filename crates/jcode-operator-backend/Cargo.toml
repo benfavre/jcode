@@ -7,8 +7,8 @@ publish = false
 
 [dependencies]
 async-trait = "0.1"
-automonique-platform-client = { git = "https://github.com/bext-stack/automonique.git", rev = "d90cd4a9b07cc21f98ad306fc755e31c71f47cfb" }
-automonique-protocol = { git = "https://github.com/bext-stack/automonique.git", rev = "d90cd4a9b07cc21f98ad306fc755e31c71f47cfb" }
+automonique-platform-client = { git = "https://github.com/bext-stack/automonique.git", rev = "b74d336358da6b86ee2c392a3cef3cf5e6065b7a" }
+automonique-protocol = { git = "https://github.com/bext-stack/automonique.git", rev = "b74d336358da6b86ee2c392a3cef3cf5e6065b7a" }
 tokio = { version = "1", features = ["macros", "rt", "sync"] }
 
 [lints.rust]

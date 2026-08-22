@@ -162,6 +162,9 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
         Some(Command::Connect) => {
             tui_launch::run_client().await?;
         }
+        Some(Command::Platform { json }) => {
+            super::platform::run_platform_command(args.socket.as_deref(), json).await?;
+        }
         #[cfg(unix)]
         Some(Command::ApiBridge { api_socket }) => {
             // The daemon must be up for the bridge to translate onto, and a

@@ -162,6 +162,13 @@ pub(crate) enum Command {
     /// Connect to a running server
     Connect,
 
+    /// Open the federated operator cockpit without starting a model provider
+    Platform {
+        /// Print one machine-readable snapshot and exit
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Run a single message and exit
     Run {
         /// Emit a machine-readable JSON result instead of streaming text

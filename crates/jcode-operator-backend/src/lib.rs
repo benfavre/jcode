@@ -1,14 +1,19 @@
 //! Backend boundary shared by standalone JCode and managed Automonique mode.
 
 use std::collections::VecDeque;
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use automonique_platform_client::{ClientError, PlatformClient, PlatformTransport, UnixTransport};
 use automonique_protocol::platform::{
-    Capabilities, PlatformRequest, PlatformResponse, SnapshotRequest,
+    AttachRequest, Attachment, Capabilities, ClaimControlRequest, ClientId, ControlLease,
+    IdempotencyKey, ListSessionsRequest, PlatformCursor, PlatformRequest, PlatformResponse,
+    ResourceAuthority, ResourceCoordinate, ResourceRecord, SessionRecord, SnapshotRequest,
 };
+
+pub use automonique_protocol::platform as platform_contract;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BackendMode {
@@ -22,6 +27,18 @@ pub enum BackendError {
     Protocol,
     ExhaustedFake,
 }
+
+impl fmt::Display for BackendError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Unavailable => "operator backend unavailable",
+            Self::Protocol => "operator backend protocol refused",
+            Self::ExhaustedFake => "fake operator backend exhausted",
+        })
+    }
+}
+
+impl std::error::Error for BackendError {}
 
 impl From<ClientError> for BackendError {
     fn from(error: ClientError) -> Self {
@@ -56,6 +73,86 @@ pub trait OperatorBackend: Send + Sync {
         ))
         .await
     }
+
+    async fn overview(
+        &self,
+        authority: ResourceAuthority,
+    ) -> Result<OperatorOverview, BackendError> {
+        let capabilities = self.capabilities().await?;
+        let snapshot = match self.snapshot().await? {
+            PlatformResponse::Snapshot(value) => value,
+            PlatformResponse::Refused { .. } => return Err(BackendError::Unavailable),
+            _ => return Err(BackendError::Protocol),
+        };
+        let sessions = if capabilities
+            .methods
+            .iter()
+            .any(|method| method.as_str() == "list_sessions")
+        {
+            match self
+                .request(PlatformRequest::ListSessions(ListSessionsRequest {
+                    authority,
+                    cursor: None,
+                }))
+                .await?
+            {
+                PlatformResponse::Sessions(value) => value.sessions,
+                PlatformResponse::Refused { .. } => Vec::new(),
+                _ => return Err(BackendError::Protocol),
+            }
+        } else {
+            Vec::new()
+        };
+        Ok(OperatorOverview {
+            capabilities,
+            resources: snapshot.resources,
+            sessions,
+            cursor: snapshot.cursor,
+        })
+    }
+
+    async fn attach(
+        &self,
+        session: ResourceCoordinate,
+        client: ClientId,
+    ) -> Result<Attachment, BackendError> {
+        match self
+            .request(PlatformRequest::Attach(AttachRequest { session, client }))
+            .await?
+        {
+            PlatformResponse::Attached(value) => Ok(value),
+            PlatformResponse::Refused { .. } => Err(BackendError::Unavailable),
+            _ => Err(BackendError::Protocol),
+        }
+    }
+
+    async fn claim_control(
+        &self,
+        session: ResourceCoordinate,
+        client: ClientId,
+        idempotency_key: IdempotencyKey,
+    ) -> Result<ControlLease, BackendError> {
+        match self
+            .request(PlatformRequest::ClaimControl(ClaimControlRequest {
+                session,
+                client,
+                idempotency_key,
+            }))
+            .await?
+        {
+            PlatformResponse::ControlClaimed(value) => Ok(value),
+            PlatformResponse::Refused { .. } => Err(BackendError::Unavailable),
+            _ => Err(BackendError::Protocol),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperatorOverview {
+    pub capabilities: Capabilities,
+    pub resources: Vec<ResourceRecord>,
+    pub sessions: Vec<SessionRecord>,
+    pub cursor: PlatformCursor,
 }
 
 /// Managed backend. The only held authority is a platform client transport.
@@ -159,7 +256,10 @@ mod tests {
                 Err(BackendError::Unavailable),
             ],
         );
-        assert_eq!(backend.capabilities().await, Ok(Capabilities::platform_v1()));
+        assert_eq!(
+            backend.capabilities().await,
+            Ok(Capabilities::platform_v1())
+        );
         assert_eq!(backend.snapshot().await, Err(BackendError::Unavailable));
         assert_eq!(backend.requests().expect("requests").len(), 2);
     }
