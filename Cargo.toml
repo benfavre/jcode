@@ -35,6 +35,7 @@ members = [
     "crates/jcode-memory-types",
     "crates/jcode-message-types",
     "crates/jcode-overnight-core",
+    "crates/jcode-operator-backend",
     "crates/jcode-plan",
     "crates/jcode-productivity-core",
     "crates/jcode-swarm-core",
