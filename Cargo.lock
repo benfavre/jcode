@@ -368,7 +368,7 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 [[package]]
 name = "automonique-platform-client"
 version = "0.1.0"
-source = "git+https://github.com/bext-stack/automonique.git?rev=d90cd4a9b07cc21f98ad306fc755e31c71f47cfb#d90cd4a9b07cc21f98ad306fc755e31c71f47cfb"
+source = "git+https://github.com/bext-stack/automonique.git?rev=b74d336358da6b86ee2c392a3cef3cf5e6065b7a#b74d336358da6b86ee2c392a3cef3cf5e6065b7a"
 dependencies = [
  "automonique-protocol",
 ]
@@ -376,7 +376,7 @@ dependencies = [
 [[package]]
 name = "automonique-protocol"
 version = "0.1.0"
-source = "git+https://github.com/bext-stack/automonique.git?rev=d90cd4a9b07cc21f98ad306fc755e31c71f47cfb#d90cd4a9b07cc21f98ad306fc755e31c71f47cfb"
+source = "git+https://github.com/bext-stack/automonique.git?rev=b74d336358da6b86ee2c392a3cef3cf5e6065b7a#b74d336358da6b86ee2c392a3cef3cf5e6065b7a"
 
 [[package]]
 name = "aws-config"
@@ -3413,6 +3413,7 @@ dependencies = [
  "hex",
  "jcode-build-meta",
  "jcode-harness-api-server",
+ "jcode-operator-backend",
  "jcode-provider-anthropic-runtime",
  "jcode-provider-antigravity-runtime",
  "jcode-provider-claude-cli-runtime",

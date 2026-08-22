@@ -14,6 +14,7 @@ pub(crate) fn initial_title(args: &Args) -> String {
         Some(Command::Acp) => "jcode acp".to_string(),
         Some(Command::Server { .. }) => "jcode server".to_string(),
         Some(Command::Connect) => "jcode:client".to_string(),
+        Some(Command::Platform { .. }) => "jcode platform".to_string(),
         #[cfg(unix)]
         Some(Command::ApiBridge { .. }) => "jcode api-bridge".to_string(),
         Some(Command::Run { .. }) => "jcode run".to_string(),
