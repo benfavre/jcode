@@ -37,11 +37,14 @@ restores controller authority.
 The action palette is generated from the server's exact authority-qualified
 action-registry resources; the presence of the generic `execute` method never
 enables an inferred mutation. Publishing the registry through ordinary v1
-resources preserves compatibility with strict existing clients. New requests
-and follow-ups use an explicit, bounded composer and
-enter Automonique's durable intake against the exact node or session revision.
-Start, cancel, request, follow-up and approval decisions always show the exact
-authority/kind/ID, target revision and consequence before submission. A
+resources preserves compatibility with strict existing clients. New requests,
+follow-ups and lease-authorized active-turn steering use an explicit, bounded
+composer and enter Automonique's durable intake against the exact target
+revision. Steering is offered only from the action palette when the focused
+pane holds a current exclusive lease; its target is the lease identity and
+revision, not a session inferred from pane focus. Start, cancel, request,
+follow-up, steer and approval decisions always show the exact authority/kind/ID,
+target revision and consequence before submission. A
 disconnect or event gap makes the client visibly read-only until an
 authoritative snapshot and any ambiguous receipt have been reconciled.
 
@@ -56,7 +59,7 @@ authoritative snapshot and any ambiguous receipt have been reconciled.
 - `Shift+Left` / `Shift+Right`: reorder the focused pane
 - `Shift+P`: pin or unpin the focused pane in the saved workspace
 - `l`: cycle pane layout
-- `p`: open capability-driven actions
+- `p`: open capability-driven actions, including active-turn steering when the focused lease permits it
 - `r`: force authoritative resynchronization
 - `h`: toggle high contrast
 - `?`: help
@@ -67,5 +70,5 @@ authoritative snapshot and any ambiguous receipt have been reconciled.
 The managed client is covered by pure reducer tests for duplicates, gaps,
 reordering, snapshot replacement, bounded per-pane buffers and reconnect lease
 invalidation; fixed-size wide, narrow, monochrome-readable and high-contrast
-render tests; fake-backend lifecycle tests; and a real PTY test that launches
+render tests; fake-backend lifecycle and lease-loss steering tests; and a real PTY test that launches
 the binary, exercises input, and verifies alternate-screen restoration.
