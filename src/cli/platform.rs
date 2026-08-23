@@ -381,9 +381,7 @@ async fn refresh(backend: &impl OperatorBackend, state: &mut CockpitState) -> Re
             }
             Err(error) => {
                 state.connection = ConnectionState::Stale;
-                state.status = String::from(
-                    "submission outcome remains unknown; controls stay disabled pending receipt",
-                );
+                state.status = String::from("unknown receipt; controls remain disabled");
                 return Err(anyhow::anyhow!(error));
             }
         }
@@ -673,6 +671,9 @@ fn available_commands(state: &CockpitState) -> Vec<AvailableCommand> {
         supports(PlatformMethod::Execute) && state.overview.actions.contains(&action)
     };
     if let Some(record) = state.selected_resource() {
+        if record.freshness.state.as_str() != "fresh" {
+            return commands;
+        }
         match record.resource.kind {
             ResourceKind::Session => {
                 if supports(PlatformMethod::Attach) {
@@ -795,6 +796,10 @@ fn open_composer(
         state.status = String::from("select an exact target before composing");
         return;
     };
+    if target.freshness.state.as_str() != "fresh" {
+        state.status = String::from("selected target is not fresh; composition disabled");
+        return;
+    }
     let action = match command {
         AvailableCommand::SubmitRequest
             if target.resource.kind == ResourceKind::Node
@@ -1087,6 +1092,8 @@ mod tests {
         state.overview.actions = vec![PlatformAction::FollowUp];
         assert!(available_commands(&state).contains(&AvailableCommand::FollowUp));
         assert!(!available_commands(&state).contains(&AvailableCommand::StopRun));
+        state.overview.sessions[0].session.freshness.state = FreshnessState::Stale;
+        assert_eq!(available_commands(&state), vec![AvailableCommand::Refresh]);
     }
 
     #[tokio::test]
