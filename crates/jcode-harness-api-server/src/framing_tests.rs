@@ -84,3 +84,57 @@ async fn each_frame_starts_from_a_clean_buffer() {
     read_frame(&mut reader, &mut line).await.unwrap();
     assert_eq!(line, "second\n");
 }
+
+/// The supervised stdio transport must use the exact same handshake and
+/// framing path as the socket transport. An incompatible hello is useful here
+/// because it terminates before attempting to dial a daemon.
+#[tokio::test]
+async fn generic_io_transport_returns_a_correlated_version_refusal() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let (client, server) = tokio::io::duplex(4096);
+    let (server_read, server_write) = tokio::io::split(server);
+    let task = tokio::spawn(handle_api_io(
+        server_read,
+        server_write,
+        PathBuf::from("unused-daemon.sock"),
+    ));
+
+    let (client_read, mut client_write) = tokio::io::split(client);
+    client_write
+        .write_all(b"{\"v\":1,\"id\":41,\"req\":\"hello\",\"min_version\":9,\"max_version\":9,\"client\":\"test\"}\n")
+        .await
+        .expect("write hello");
+    let mut response = String::new();
+    BufReader::new(client_read)
+        .read_line(&mut response)
+        .await
+        .expect("read refusal");
+
+    let value: Value = serde_json::from_str(response.trim()).expect("valid response frame");
+    assert_eq!(value["reply_to"], 41);
+    assert_eq!(value["ev"], "error");
+    assert_eq!(value["code"], "unsupported_version");
+    task.await
+        .expect("bridge task joins")
+        .expect("bridge exits cleanly");
+}
+
+#[test]
+fn advertised_capabilities_cover_managed_execution_controls() {
+    for required in [
+        "sessions",
+        "streaming",
+        "cancellation",
+        "soft_interrupt",
+        "permission_requests",
+        "history",
+        "model_catalog",
+        "usage",
+    ] {
+        assert!(
+            HARNESS_CAPABILITIES.contains(&required),
+            "managed hosts require {required} capability discovery"
+        );
+    }
+}

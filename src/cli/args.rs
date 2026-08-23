@@ -567,6 +567,14 @@ pub(crate) enum Command {
         #[arg(long = "api-socket")]
         api_socket: Option<String>,
     },
+
+    /// Serve one stable harness API client over stdin/stdout.
+    ///
+    /// Intended for contained execution hosts that supervise this process.
+    /// Stdout carries protocol frames only; diagnostics remain on stderr.
+    #[cfg(unix)]
+    #[command(name = "api-stdio")]
+    ApiStdio,
 }
 
 #[derive(Subcommand, Debug)]
