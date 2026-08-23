@@ -2,6 +2,8 @@
 
 use anyhow::Result;
 use std::io::IsTerminal;
+use std::io::Read as _;
+use std::path::PathBuf;
 use std::process::{Command as ProcessCommand, Stdio};
 use std::time::Instant;
 
@@ -249,7 +251,21 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
             message,
             json,
             ndjson,
+            output_last_message,
         }) => {
+            let message = if message == "-" {
+                const MAX_RUN_STDIN_BYTES: u64 = 1024 * 1024;
+                let mut bytes = Vec::new();
+                std::io::stdin()
+                    .take(MAX_RUN_STDIN_BYTES + 1)
+                    .read_to_end(&mut bytes)?;
+                if bytes.is_empty() || bytes.len() as u64 > MAX_RUN_STDIN_BYTES {
+                    anyhow::bail!("run stdin must contain 1..={MAX_RUN_STDIN_BYTES} bytes");
+                }
+                String::from_utf8(bytes)?
+            } else {
+                message
+            };
             commands::run_single_message_command(
                 &args.provider,
                 args.model.as_deref(),
@@ -257,6 +273,7 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
                 &message,
                 json,
                 ndjson,
+                output_last_message.as_deref(),
             )
             .await?;
         }
@@ -1287,6 +1304,31 @@ async fn detect_bootstrap_credentials() -> BootstrapCredentialState {
     }
 }
 
+/// Absolute executable path supplied by a containing supervisor.
+///
+/// A sealed/memfd-launched client cannot reliably respawn `current_exe()`:
+/// `/proc/self/exe` can resolve to a deleted anonymous file. Automonique pins
+/// and grants one on-disk JCode binary, so its contained protocol host passes
+/// that exact path here for the shared server child.
+const SERVER_EXECUTABLE_ENV: &str = "JCODE_SERVER_EXECUTABLE";
+
+fn select_server_executable(
+    supervised: Option<std::ffi::OsString>,
+    shared_update: Option<PathBuf>,
+    current: Option<PathBuf>,
+) -> Result<PathBuf> {
+    if let Some(value) = supervised {
+        let path = PathBuf::from(value);
+        if !path.is_absolute() || path.file_name().is_none() {
+            anyhow::bail!("{SERVER_EXECUTABLE_ENV} must name an absolute executable path");
+        }
+        return Ok(path);
+    }
+    shared_update
+        .or(current)
+        .ok_or_else(|| anyhow::anyhow!("Could not determine executable path for server spawn"))
+}
+
 pub(crate) async fn spawn_server(
     provider_choice: &ProviderChoice,
     model: Option<&str>,
@@ -1319,10 +1361,11 @@ pub(crate) async fn spawn_server(
     startup_profile::mark("server_spawn_start");
     output::stderr_info("Starting server...");
     let client_requested_selfdev = selfdev::client_selfdev_requested();
-    let exe = build::shared_server_update_candidate(client_requested_selfdev)
-        .map(|(path, _)| path)
-        .or_else(|| std::env::current_exe().ok())
-        .ok_or_else(|| anyhow::anyhow!("Could not determine executable path for server spawn"))?;
+    let exe = select_server_executable(
+        std::env::var_os(SERVER_EXECUTABLE_ENV),
+        build::shared_server_update_candidate(client_requested_selfdev).map(|(path, _)| path),
+        std::env::current_exe().ok(),
+    )?;
     let mut cmd = ProcessCommand::new(&exe);
     cmd.env_remove(selfdev::CLIENT_SELFDEV_ENV);
     if client_requested_selfdev {

@@ -2423,6 +2423,7 @@ pub async fn run_single_message_command(
     message: &str,
     emit_json: bool,
     emit_ndjson: bool,
+    output_last_message: Option<&Path>,
 ) -> Result<()> {
     let provider = if emit_json || emit_ndjson {
         super::provider_init::init_provider_quiet(choice, model).await?
@@ -2455,7 +2456,15 @@ pub async fn run_single_message_command(
         return Err(error);
     }
 
-    run_single_message_with_agent(&mut agent, provider, message, emit_json, emit_ndjson).await
+    run_single_message_with_agent(
+        &mut agent,
+        provider,
+        message,
+        emit_json,
+        emit_ndjson,
+        output_last_message,
+    )
+    .await
 }
 
 async fn run_single_message_with_agent(
@@ -2464,6 +2473,7 @@ async fn run_single_message_with_agent(
     message: &str,
     emit_json: bool,
     emit_ndjson: bool,
+    output_last_message: Option<&Path>,
 ) -> Result<()> {
     let result: Result<()> = async {
         if emit_json {
@@ -2477,7 +2487,8 @@ async fn run_single_message_with_agent(
             };
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else if emit_ndjson {
-            run_single_message_command_ndjson(agent, provider, message).await?;
+            run_single_message_command_ndjson(agent, provider, message, output_last_message)
+                .await?;
         } else {
             run_single_message_command_plain_with_auto_poke(agent, message).await?;
         }
@@ -2917,6 +2928,7 @@ async fn run_single_message_command_ndjson(
     agent: &mut crate::agent::Agent,
     provider: std::sync::Arc<dyn crate::provider::Provider>,
     message: &str,
+    output_last_message: Option<&Path>,
 ) -> Result<()> {
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
     let session_id = agent.session_id().to_string();
@@ -3069,6 +3081,9 @@ async fn run_single_message_command_ndjson(
 
     match result {
         Ok(()) => {
+            if let Some(path) = output_last_message {
+                write_last_message(path, &state.text)?;
+            }
             write_json_line(
                 &mut stdout,
                 &serde_json::json!({
@@ -3100,6 +3115,24 @@ async fn run_single_message_command_ndjson(
             Err(err)
         }
     }
+}
+
+fn write_last_message(path: &Path, text: &str) -> Result<()> {
+    use std::fs::OpenOptions;
+
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(true).write(true);
+    #[cfg(unix)]
+    options
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let mut file = options.open(path)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()?;
+    Ok(())
 }
 
 fn emit_ndjson_event(

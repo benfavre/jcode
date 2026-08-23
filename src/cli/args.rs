@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
 
 use super::provider_init::ProviderChoice;
 
@@ -179,7 +180,14 @@ pub(crate) enum Command {
         #[arg(long, conflicts_with = "json")]
         ndjson: bool,
 
-        /// The message to send
+        /// Write the final assistant message to this file.
+        ///
+        /// Intended for contained supervisors that consume NDJSON on stdout
+        /// and need a separate bounded result channel.
+        #[arg(long, value_name = "PATH", requires = "ndjson")]
+        output_last_message: Option<PathBuf>,
+
+        /// The message to send, or `-` to read it from stdin
         message: String,
     },
 

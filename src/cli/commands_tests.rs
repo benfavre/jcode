@@ -1344,6 +1344,7 @@ async fn one_shot_output_modes_close_sessions_and_clear_active_pid_markers() {
         let marker = crate::storage::active_pids_dir()
             .expect("active PID directory")
             .join(&session_id);
+        let last_message = temp.path().join(format!("{mode}-last-message"));
         assert!(marker.exists(), "{mode} session should start active");
 
         run_single_message_with_agent(
@@ -1352,6 +1353,7 @@ async fn one_shot_output_modes_close_sessions_and_clear_active_pid_markers() {
             "Return the test response.",
             emit_json,
             emit_ndjson,
+            emit_ndjson.then_some(last_message.as_path()),
         )
         .await
         .unwrap_or_else(|error| panic!("{mode} run failed: {error:#}"));
@@ -1373,7 +1375,43 @@ async fn one_shot_output_modes_close_sessions_and_clear_active_pid_markers() {
                 .any(|(id, _)| id == &session_id),
             "{mode} run was rediscovered as a stale-PID crash"
         );
+        if emit_ndjson {
+            assert_eq!(
+                std::fs::read_to_string(&last_message).expect("read last message"),
+                "ok"
+            );
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                assert_eq!(
+                    std::fs::metadata(&last_message)
+                        .expect("last-message metadata")
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o600
+                );
+            }
+        } else {
+            assert!(!last_message.exists());
+        }
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn last_message_output_refuses_symbolic_links() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let target = temp.path().join("target");
+    let link = temp.path().join("link");
+    std::fs::write(&target, "preserve").expect("seed target");
+    std::os::unix::fs::symlink(&target, &link).expect("create symlink");
+
+    write_last_message(&link, "replace").expect_err("symlink output must be refused");
+    assert_eq!(
+        std::fs::read_to_string(target).expect("read preserved target"),
+        "preserve"
+    );
 }
 
 #[tokio::test]
@@ -1412,6 +1450,7 @@ async fn resumed_one_shot_closes_the_restored_session() {
         "Finish the resumed one-shot session.",
         true,
         false,
+        None,
     )
     .await
     .expect("run resumed one-shot session");
@@ -1457,6 +1496,7 @@ async fn one_shot_cleanup_preserves_the_original_command_error() {
             "Fail this run.",
             emit_json,
             emit_ndjson,
+            None,
         )
         .await
         {

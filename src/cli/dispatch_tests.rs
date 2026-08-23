@@ -2,6 +2,44 @@ use super::*;
 use crate::transport::Listener;
 
 #[test]
+fn supervised_server_executable_wins_over_self_update_and_current_exe() {
+    let selected = select_server_executable(
+        Some(std::ffi::OsString::from("/opt/jcode/bin/jcode")),
+        Some(std::path::PathBuf::from("/opt/jcode/update/jcode")),
+        Some(std::path::PathBuf::from("/proc/self/exe")),
+    )
+    .expect("supervised executable");
+    assert_eq!(selected, std::path::Path::new("/opt/jcode/bin/jcode"));
+}
+
+#[test]
+fn supervised_server_executable_refuses_relative_paths() {
+    let error = select_server_executable(
+        Some(std::ffi::OsString::from("bin/jcode")),
+        Some(std::path::PathBuf::from("/opt/jcode/update/jcode")),
+        None,
+    )
+    .expect_err("relative supervisor path must be refused");
+    assert!(error.to_string().contains(SERVER_EXECUTABLE_ENV));
+}
+
+#[test]
+fn ordinary_server_executable_selection_keeps_existing_precedence() {
+    let update = std::path::PathBuf::from("/opt/jcode/update/jcode");
+    let current = std::path::PathBuf::from("/proc/self/exe");
+    assert_eq!(
+        select_server_executable(None, Some(update.clone()), Some(current.clone()))
+            .expect("update candidate"),
+        update
+    );
+    assert_eq!(
+        select_server_executable(None, None, Some(current.clone())).expect("current exe"),
+        current
+    );
+    assert!(select_server_executable(None, None, None).is_err());
+}
+
+#[test]
 fn only_file_controlled_debug_clients_need_parent_lifetime_binding() {
     let _lock = crate::storage::lock_test_env();
     let previous = std::env::var_os("JCODE_DEBUG_CMD_PATH");

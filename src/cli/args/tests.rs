@@ -619,10 +619,12 @@ fn run_json_subcommand_parses() {
         Some(Command::Run {
             json,
             ndjson,
+            output_last_message,
             message,
         }) => {
             assert!(json);
             assert!(!ndjson);
+            assert!(output_last_message.is_none());
             assert_eq!(message, "hello");
         }
         other => panic!("unexpected command: {:?}", other),
@@ -636,14 +638,58 @@ fn run_ndjson_subcommand_parses() {
         Some(Command::Run {
             json,
             ndjson,
+            output_last_message,
             message,
         }) => {
             assert!(!json);
             assert!(ndjson);
+            assert!(output_last_message.is_none());
             assert_eq!(message, "hello");
         }
         other => panic!("unexpected command: {:?}", other),
     }
+}
+
+#[test]
+fn run_ndjson_accepts_stdin_and_a_separate_last_message_file() {
+    let args = Args::try_parse_from([
+        "jcode",
+        "run",
+        "--ndjson",
+        "--output-last-message",
+        "/tmp/result",
+        "-",
+    ])
+    .unwrap();
+    match args.command {
+        Some(Command::Run {
+            json,
+            ndjson,
+            output_last_message,
+            message,
+        }) => {
+            assert!(!json);
+            assert!(ndjson);
+            assert_eq!(
+                output_last_message.as_deref(),
+                Some(std::path::Path::new("/tmp/result"))
+            );
+            assert_eq!(message, "-");
+        }
+        other => panic!("unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn last_message_file_requires_the_streaming_machine_format() {
+    Args::try_parse_from([
+        "jcode",
+        "run",
+        "--output-last-message",
+        "/tmp/result",
+        "hello",
+    ])
+    .expect_err("output channel without ndjson must be refused");
 }
 
 #[test]
