@@ -8,12 +8,17 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use automonique_platform_client::{ClientError, PlatformClient, PlatformTransport, UnixTransport};
 use automonique_protocol::platform::{
-    AttachRequest, Attachment, Capabilities, ClaimControlRequest, ClientId, ControlLease,
-    IdempotencyKey, ListSessionsRequest, PlatformCursor, PlatformRequest, PlatformResponse,
-    ResourceAuthority, ResourceCoordinate, ResourceRecord, SessionRecord, SnapshotRequest,
+    ActionReceipt, AttachRequest, Attachment, Capabilities, ClaimControlRequest, ClientId,
+    ControlLease, DetachRequest, ExecuteRequest, GetReceiptRequest, IdempotencyKey,
+    ListSessionsRequest, PlatformAction, PlatformCursor, PlatformRequest, PlatformResponse,
+    ReceiptOutcome, ReleaseControlRequest, ResourceAuthority, ResourceCoordinate, ResourceKind,
+    ResourceRecord, SessionRecord, SnapshotRequest, SubscribeRequest, Subscription,
 };
 
+pub use automonique_protocol::codec as platform_codec;
 pub use automonique_protocol::platform as platform_contract;
+pub use automonique_protocol::platform_api;
+pub use automonique_protocol::primitives as platform_primitives;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BackendMode {
@@ -25,16 +30,28 @@ pub enum BackendMode {
 pub enum BackendError {
     Unavailable,
     Protocol,
+    Refused {
+        outcome: ReceiptOutcome,
+        explanation: String,
+    },
     ExhaustedFake,
 }
 
 impl fmt::Display for BackendError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Unavailable => "operator backend unavailable",
-            Self::Protocol => "operator backend protocol refused",
-            Self::ExhaustedFake => "fake operator backend exhausted",
-        })
+        match self {
+            Self::Unavailable => formatter.write_str("operator backend unavailable"),
+            Self::Protocol => formatter.write_str("operator backend protocol refused"),
+            Self::Refused {
+                outcome,
+                explanation,
+            } => write!(
+                formatter,
+                "operator action {}: {explanation}",
+                outcome.as_str()
+            ),
+            Self::ExhaustedFake => formatter.write_str("fake operator backend exhausted"),
+        }
     }
 }
 
@@ -43,11 +60,22 @@ impl std::error::Error for BackendError {}
 impl From<ClientError> for BackendError {
     fn from(error: ClientError) -> Self {
         match error {
-            ClientError::Io => Self::Unavailable,
-            ClientError::Protocol | ClientError::Correlation | ClientError::ResponseTooLarge => {
-                Self::Protocol
-            }
+            ClientError::Io
+            | ClientError::Endpoint
+            | ClientError::Unauthorized
+            | ClientError::UnexpectedStatus => Self::Unavailable,
+            ClientError::Protocol
+            | ClientError::Correlation
+            | ClientError::ResponseTooLarge
+            | ClientError::UnexpectedContentType => Self::Protocol,
         }
+    }
+}
+
+fn refused(outcome: ReceiptOutcome, explanation: impl ToString) -> BackendError {
+    BackendError::Refused {
+        outcome,
+        explanation: explanation.to_string(),
     }
 }
 
@@ -81,7 +109,10 @@ pub trait OperatorBackend: Send + Sync {
         let capabilities = self.capabilities().await?;
         let snapshot = match self.snapshot().await? {
             PlatformResponse::Snapshot(value) => value,
-            PlatformResponse::Refused { .. } => return Err(BackendError::Unavailable),
+            PlatformResponse::Refused {
+                outcome,
+                explanation,
+            } => return Err(refused(outcome, explanation)),
             _ => return Err(BackendError::Protocol),
         };
         let sessions = if capabilities
@@ -103,8 +134,20 @@ pub trait OperatorBackend: Send + Sync {
         } else {
             Vec::new()
         };
+        let mut actions = Vec::new();
+        for record in snapshot.resources.iter().filter(|record| {
+            record.resource.authority == ResourceAuthority::Automonique
+                && record.resource.kind == ResourceKind::Client
+                && record.freshness.state.as_str() == "fresh"
+        }) {
+            let Some(value) = record.resource.id.as_str().strip_prefix("platform-action-") else {
+                continue;
+            };
+            actions.push(PlatformAction::parse(value).map_err(|_| BackendError::Protocol)?);
+        }
         Ok(OperatorOverview {
             capabilities,
+            actions,
             resources: snapshot.resources,
             sessions,
             cursor: snapshot.cursor,
@@ -121,7 +164,10 @@ pub trait OperatorBackend: Send + Sync {
             .await?
         {
             PlatformResponse::Attached(value) => Ok(value),
-            PlatformResponse::Refused { .. } => Err(BackendError::Unavailable),
+            PlatformResponse::Refused {
+                outcome,
+                explanation,
+            } => Err(refused(outcome, explanation)),
             _ => Err(BackendError::Protocol),
         }
     }
@@ -141,7 +187,105 @@ pub trait OperatorBackend: Send + Sync {
             .await?
         {
             PlatformResponse::ControlClaimed(value) => Ok(value),
-            PlatformResponse::Refused { .. } => Err(BackendError::Unavailable),
+            PlatformResponse::Refused {
+                outcome,
+                explanation,
+            } => Err(refused(outcome, explanation)),
+            _ => Err(BackendError::Protocol),
+        }
+    }
+
+    async fn subscribe(
+        &self,
+        cursor: Option<PlatformCursor>,
+    ) -> Result<Subscription, BackendError> {
+        match self
+            .request(PlatformRequest::Subscribe(SubscribeRequest { cursor }))
+            .await?
+        {
+            PlatformResponse::Subscription(value) => Ok(value),
+            PlatformResponse::Refused {
+                outcome,
+                explanation,
+            } => Err(refused(outcome, explanation)),
+            _ => Err(BackendError::Protocol),
+        }
+    }
+
+    async fn execute(&self, request: ExecuteRequest) -> Result<ActionReceipt, BackendError> {
+        match self.request(PlatformRequest::Execute(request)).await? {
+            PlatformResponse::Receipt(value) => Ok(value),
+            PlatformResponse::Refused {
+                outcome,
+                explanation,
+            } => Err(refused(outcome, explanation)),
+            _ => Err(BackendError::Protocol),
+        }
+    }
+
+    async fn receipt(&self, request: GetReceiptRequest) -> Result<ActionReceipt, BackendError> {
+        match self.request(PlatformRequest::GetReceipt(request)).await? {
+            PlatformResponse::Receipt(value) => Ok(value),
+            PlatformResponse::Refused {
+                outcome,
+                explanation,
+            } => Err(refused(outcome, explanation)),
+            _ => Err(BackendError::Protocol),
+        }
+    }
+
+    async fn detach(
+        &self,
+        session: ResourceCoordinate,
+        client: ClientId,
+    ) -> Result<(), BackendError> {
+        match self
+            .request(PlatformRequest::Detach(DetachRequest {
+                session: session.clone(),
+                client: client.clone(),
+            }))
+            .await?
+        {
+            PlatformResponse::Detached {
+                session: detached,
+                client: detached_client,
+            } if detached == session && detached_client == client => Ok(()),
+            PlatformResponse::Refused {
+                outcome,
+                explanation,
+            } => Err(refused(outcome, explanation)),
+            _ => Err(BackendError::Protocol),
+        }
+    }
+
+    async fn release_control(
+        &self,
+        lease: ControlLease,
+        idempotency_key: IdempotencyKey,
+    ) -> Result<(), BackendError> {
+        let session = lease.session.clone();
+        let client = lease.client.clone();
+        let lease_id = lease.id.clone();
+        match self
+            .request(PlatformRequest::ReleaseControl(ReleaseControlRequest {
+                session: session.clone(),
+                client: client.clone(),
+                lease: lease_id.clone(),
+                idempotency_key,
+            }))
+            .await?
+        {
+            PlatformResponse::ControlReleased {
+                session: released,
+                client: released_client,
+                lease: released_lease,
+            } if released == session && released_client == client && released_lease == lease_id => {
+                Ok(())
+            }
+            PlatformResponse::Refused {
+                outcome,
+                explanation,
+            } => Err(refused(outcome, explanation)),
             _ => Err(BackendError::Protocol),
         }
     }
@@ -150,6 +294,9 @@ pub trait OperatorBackend: Send + Sync {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OperatorOverview {
     pub capabilities: Capabilities,
+    /// Exact action vocabulary projected by the serving authority as v1
+    /// resources. It is intentionally separate from generic method support.
+    pub actions: Vec<PlatformAction>,
     pub resources: Vec<ResourceRecord>,
     pub sessions: Vec<SessionRecord>,
     pub cursor: PlatformCursor,
