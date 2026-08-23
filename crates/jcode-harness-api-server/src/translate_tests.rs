@@ -559,6 +559,11 @@ fn a_failed_turn_clears_the_pending_message() {
     let frames = state.legacy_event_to_api(&json!({
         "type": "error", "id": legacy_id, "message": "dns error",
     }));
+    assert_eq!(
+        frames[0].reply_to,
+        Some(11),
+        "the terminal turn error must identify the send_message request"
+    );
     assert!(
         frames
             .iter()

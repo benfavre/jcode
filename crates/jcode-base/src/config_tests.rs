@@ -813,6 +813,28 @@ fn test_provider_failover_defaults_match_new_behavior() {
 }
 
 #[test]
+fn provider_failover_off_alias_disables_automatic_resend_without_rejecting_config() {
+    let cfg: Config = toml::from_str(
+        r#"
+        [provider]
+        default_provider = "openai"
+        cross_provider_failover = "off"
+        "#,
+    )
+    .expect("the explicit off alias should parse");
+
+    assert_eq!(cfg.provider.default_provider.as_deref(), Some("openai"));
+    assert_eq!(
+        cfg.provider.cross_provider_failover,
+        super::CrossProviderFailoverMode::Manual
+    );
+    assert_eq!(
+        super::CrossProviderFailoverMode::parse("off"),
+        Some(super::CrossProviderFailoverMode::Manual)
+    );
+}
+
+#[test]
 fn test_native_scrollbars_default_to_enabled() {
     let display = DisplayConfig::default();
     assert!(display.native_scrollbars.chat);
