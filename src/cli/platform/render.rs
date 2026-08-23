@@ -63,6 +63,9 @@ pub fn render(
     composer: Option<ComposerView<'_>>,
 ) {
     let area = frame.area();
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
     let compact = area.width < 80 || area.height < 24;
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -674,5 +677,10 @@ mod tests {
         let output = screen(100, 28, value);
         assert!(output.contains("LIVE"));
         assert!(output.contains("overview"));
+    }
+
+    #[test]
+    fn zero_sized_terminal_waits_for_a_resize_without_panicking() {
+        assert!(screen(0, 0, state()).is_empty());
     }
 }
