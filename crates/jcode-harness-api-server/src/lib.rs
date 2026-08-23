@@ -41,6 +41,25 @@ pub use jcode_harness_api::{api_socket_path, legacy_socket_path};
 /// message carrying base64 images) and far below a problem.
 const MAX_FRAME_BYTES: u64 = 16 * 1024 * 1024;
 
+/// Additive capabilities advertised by every harness API transport.
+pub const HARNESS_CAPABILITIES: [&str; 15] = [
+    "sessions",
+    "streaming",
+    "cancellation",
+    "soft_interrupt",
+    "permission_requests",
+    "history",
+    "model_catalog",
+    "reasoning_effort",
+    "usage",
+    "persisted_session_discovery",
+    "runtime_info",
+    "api_key_provisioning",
+    "session_archive",
+    "session_retention",
+    "session_files",
+];
+
 /// Read one newline-delimited frame, refusing to buffer more than
 /// `MAX_FRAME_BYTES`. Returns `Ok(0)` at end of stream, like `read_line`.
 async fn read_frame<R>(reader: &mut R, line: &mut String) -> std::io::Result<usize>
@@ -191,6 +210,24 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
 
 async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()> {
     let (read_half, mut write_half) = stream.into_split();
+    handle_api_io(read_half, &mut write_half, legacy_socket).await
+}
+
+/// Serve exactly one harness API client over stdin/stdout.
+///
+/// This transport is intended for a supervising execution host that already
+/// owns process lifetime and containment. It speaks the same framed protocol
+/// as [`run_bridge`] but creates no public socket and accepts no second client.
+/// Diagnostics remain on stderr; stdout is protocol frames only.
+pub async fn run_stdio_bridge(legacy_socket: PathBuf) -> Result<()> {
+    handle_api_io(tokio::io::stdin(), tokio::io::stdout(), legacy_socket).await
+}
+
+async fn handle_api_io<R, W>(read_half: R, mut write_half: W, legacy_socket: PathBuf) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
     let mut reader = BufReader::new(read_half);
     let mut line = String::new();
 
@@ -234,19 +271,10 @@ async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()>
         ApiEvent::HelloOk {
             version: API_VERSION_MAJOR,
             server: format!("jcode-harness-api-bridge/{}", env!("CARGO_PKG_VERSION")),
-            capabilities: [
-                "sessions",
-                "streaming",
-                "persisted_session_discovery",
-                "runtime_info",
-                "api_key_provisioning",
-                "session_archive",
-                "session_retention",
-                "session_files",
-            ]
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
+            capabilities: HARNESS_CAPABILITIES
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
         },
     );
     write_json_line(&mut write_half, &hello_ok).await?;

@@ -193,6 +193,21 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
             let legacy_socket = jcode_harness_api_server::legacy_socket_path();
             jcode_harness_api_server::run_bridge(api_socket, legacy_socket).await?;
         }
+        #[cfg(unix)]
+        Some(Command::ApiStdio) => {
+            if let Err(error) = spawn_server(
+                &args.provider,
+                args.model.as_deref(),
+                args.provider_profile.as_deref(),
+            )
+            .await
+            {
+                eprintln!("api-stdio: could not start the jcode server: {error:#}");
+                eprintln!("api-stdio: continuing; an already-running server will still be used");
+            }
+            let legacy_socket = jcode_harness_api_server::legacy_socket_path();
+            jcode_harness_api_server::run_stdio_bridge(legacy_socket).await?;
+        }
         Some(Command::Server { action }) => match action {
             ServerCommand::Start { json } => {
                 spawn_server(

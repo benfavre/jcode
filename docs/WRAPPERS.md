@@ -75,6 +75,25 @@ Typical event types:
 
 The final `done` event includes the assembled text and usage summary.
 
+## Supervise the full session API over stdio
+
+Execution hosts that own process lifetime and containment can use the stable
+harness API without exposing a socket:
+
+```bash
+jcode --quiet --no-update --no-selfdev api-stdio
+```
+
+The command starts the private jcode daemon when needed, then serves one
+protocol-v1 client as newline-delimited JSON on stdin/stdout. Stdout is reserved
+for protocol frames; diagnostics go to stderr. The opening client frame must be
+`hello`, exactly as it is for `jcode api-bridge`, and the reply advertises the
+same session, streaming, cancellation, permission, history, model, usage, and
+runtime capabilities.
+
+Use `api-stdio` when the parent process supervises one contained engine. Use
+`api-bridge` when multiple local clients need the owner-only API socket.
+
 Example shape:
 
 ```json

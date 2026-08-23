@@ -854,3 +854,13 @@ fn api_bridge_socket_flags_do_not_collide() {
         "`--socket` after api-bridge must bind the daemon socket, never the API socket"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn api_stdio_subcommand_parses_without_a_public_socket() {
+    let args = Args::try_parse_from(["jcode", "--socket", "/tmp/internal.sock", "api-stdio"])
+        .expect("api-stdio should parse");
+
+    assert!(matches!(args.command, Some(Command::ApiStdio)));
+    assert_eq!(args.socket.as_deref(), Some("/tmp/internal.sock"));
+}
