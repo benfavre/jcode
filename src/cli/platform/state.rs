@@ -300,7 +300,10 @@ impl CockpitState {
             })
             .filter(|record| seen.insert(coordinate_key(&record.resource)))
             .filter(|record| match self.view {
-                View::Overview => true,
+                View::Overview => {
+                    record.resource.kind != ResourceKind::Node
+                        || record.freshness.state.as_str() == "fresh"
+                }
                 View::Runs => record.resource.kind == ResourceKind::Run,
                 View::Sessions => record.resource.kind == ResourceKind::Session,
                 View::Approvals => record.resource.kind == ResourceKind::Approval,
