@@ -10,21 +10,18 @@ use super::args::{
     ModelCommand, ProviderCommand, RestartCommand, ServerCommand, SessionCommand,
     TranscriptModeArg,
 };
-use crate::{
-    agent, auth, build, provider, provider_catalog, server, session, setup_hints, startup_profile,
-    tui,
-};
-
 use super::{
     account, acp, commands, debug, hot_exec, login, output, provider_init, selfdev, terminal,
     tui_launch,
 };
+use crate::{
+    agent, auth, build, provider, provider_catalog, server, session, setup_hints, startup_profile,
+    tui,
+};
 use provider_init::ProviderChoice;
-
 fn is_file_controlled_debug_client() -> bool {
     std::env::var_os("JCODE_DEBUG_CMD_PATH").is_some()
 }
-
 #[cfg(target_os = "linux")]
 fn is_orphan_adopter_name(name: &str) -> bool {
     matches!(name.trim(), "init" | "systemd")
