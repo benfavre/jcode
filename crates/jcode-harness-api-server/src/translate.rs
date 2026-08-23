@@ -89,9 +89,10 @@ pub struct BridgeState {
     pub session_id: Option<String>,
     /// Next id to use on the legacy connection.
     next_legacy_id: u64,
-    /// Legacy id of the in-flight `message` request, so `done` maps to
-    /// `turn_done`.
-    pending_message_id: Option<u64>,
+    /// Legacy and API ids of the in-flight `message` request. The legacy id
+    /// maps `done` to `turn_done`; retaining the API id also lets a terminal
+    /// daemon `error` identify the exact `send_message` that failed.
+    pending_message_id: Option<(u64, u64)>,
     /// Legacy and API ids for a context-only message. Its daemon completion
     /// event is a request reply, not a model turn boundary.
     pending_no_reply_message_id: Option<(u64, u64)>,
@@ -382,7 +383,7 @@ impl BridgeState {
                 if no_reply {
                     self.pending_no_reply_message_id = Some((id, api_id));
                 } else {
-                    self.pending_message_id = Some(id);
+                    self.pending_message_id = Some((id, api_id));
                 }
                 let mut message = json!({
                     "type": "message",
@@ -926,7 +927,10 @@ impl BridgeState {
                 let id = event["id"].as_u64().unwrap_or(0);
                 // Subscribe and other requests also emit `done`; only a
                 // completed `message` is a turn boundary.
-                if self.pending_message_id == Some(id) {
+                if self
+                    .pending_message_id
+                    .is_some_and(|(legacy_id, _)| legacy_id == id)
+                {
                     self.pending_message_id = None;
                     vec![ServerFrame::event(ApiEvent::TurnDone {
                         session_id: session(self),
@@ -1145,7 +1149,10 @@ impl BridgeState {
                 // agent has the text: report it as its own event so a client
                 // can move a message from "sent" to "acknowledged" without
                 // waiting for the first token of the reply.
-                if self.pending_message_id == Some(id) {
+                if self
+                    .pending_message_id
+                    .is_some_and(|(legacy_id, _)| legacy_id == id)
+                {
                     return vec![ServerFrame::event(ApiEvent::MessageAccepted {
                         session_id: session(self),
                     })];
@@ -1184,7 +1191,11 @@ impl BridgeState {
                 // the turn is over: forget the pending message, or a later
                 // unrelated `done` carrying the same id would be reported as
                 // this turn finishing.
-                if self.pending_message_id == Some(id) {
+                let turn_api_id = self
+                    .pending_message_id
+                    .filter(|(legacy_id, _)| *legacy_id == id)
+                    .map(|(_, api_id)| api_id);
+                if turn_api_id.is_some() {
                     self.pending_message_id = None;
                 }
                 let no_reply_api_id = self
@@ -1195,7 +1206,7 @@ impl BridgeState {
                     self.pending_no_reply_message_id = None;
                 }
                 // Route to a pending request when possible, else stream it.
-                let reply_to = no_reply_api_id.or_else(|| {
+                let reply_to = turn_api_id.or(no_reply_api_id).or_else(|| {
                     self.pending_simple
                         .iter()
                         .position(|(legacy_id, _, _)| *legacy_id == id)
