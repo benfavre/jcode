@@ -119,6 +119,11 @@ fn request_roundtrip() {
             request_id: "p1".into(),
             decision: PermissionDecision::Allow,
         },
+        ApiRequest::StdinResponse {
+            session_id: "s1".into(),
+            request_id: "stdin-1".into(),
+            input: "yes".into(),
+        },
         ApiRequest::GetRuntimeInfo {
             session_id: "s1".into(),
         },

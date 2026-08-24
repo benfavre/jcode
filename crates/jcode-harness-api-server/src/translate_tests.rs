@@ -324,6 +324,82 @@ fn acking_an_unrelated_request_stays_a_reply() {
 }
 
 #[test]
+fn interactive_stdin_roundtrips_through_the_public_api() {
+    let mut state = state_with_session();
+    let frames = state.legacy_event_to_api(&json!({
+        "type": "stdin_request",
+        "request_id": "stdin-7",
+        "prompt": "Password: ",
+        "is_password": true,
+        "tool_call_id": "tool-3",
+    }));
+    assert_eq!(
+        frames[0].event,
+        ApiEvent::StdinRequest {
+            session_id: "s1".into(),
+            request_id: "stdin-7".into(),
+            prompt: "Password: ".into(),
+            is_password: true,
+            tool_call_id: "tool-3".into(),
+        }
+    );
+
+    let out = state.api_request_to_legacy(&json!({
+        "req": "stdin_response",
+        "id": 29,
+        "session_id": "s1",
+        "request_id": "stdin-7",
+        "input": "secret",
+    }));
+    let Outbound::Legacy(response) = &out[0] else {
+        panic!("expected legacy outbound");
+    };
+    assert_eq!(response["type"], "stdin_response");
+    assert_eq!(response["request_id"], "stdin-7");
+    assert_eq!(response["input"], "secret");
+    let legacy_id = response["id"].as_u64().unwrap();
+
+    let done = state.legacy_event_to_api(&json!({"type": "done", "id": legacy_id}));
+    assert_eq!(done[0].reply_to, Some(29));
+    assert_eq!(done[0].event, ApiEvent::Ok);
+}
+
+#[test]
+fn stdin_response_requires_the_attached_session_and_request_id() {
+    let mut unattached = BridgeState::default();
+    let response = only_reply_event(unattached.api_request_to_legacy(&json!({
+        "req": "stdin_response",
+        "id": 30,
+        "session_id": "s1",
+        "request_id": "stdin-1",
+        "input": "yes",
+    })));
+    assert!(matches!(
+        response,
+        ApiEvent::Error {
+            code: ErrorCode::UnknownSession,
+            ..
+        }
+    ));
+
+    let mut attached = state_with_session();
+    let response = only_reply_event(attached.api_request_to_legacy(&json!({
+        "req": "stdin_response",
+        "id": 31,
+        "session_id": "s1",
+        "request_id": "",
+        "input": "yes",
+    })));
+    assert!(matches!(
+        response,
+        ApiEvent::Error {
+            code: ErrorCode::InvalidRequest,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn ping_pong_roundtrip() {
     let mut state = state_with_session();
     let out = state.api_request_to_legacy(&json!({"req": "ping", "id": 9}));

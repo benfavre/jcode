@@ -26,6 +26,7 @@ const REQUIRES_ATTACH: &[&str] = &[
     "cancel",
     "soft_interrupt",
     "cancel_soft_interrupts",
+    "stdin_response",
     "clear",
     "rewind",
     "rewind_undo",
@@ -193,6 +194,8 @@ enum SimpleKind {
     Ping,
     History,
     Ok,
+    /// Awaiting a legacy `done` event rather than an `ack`.
+    DoneOk,
     /// Awaiting `model_changed`, which carries its own error field.
     Model,
     /// Awaiting `reasoning_effort_changed`.
@@ -813,6 +816,31 @@ impl BridgeState {
                     },
                 ))]
             }
+            "stdin_response" => {
+                let request_id = request["request_id"].as_str().unwrap_or("");
+                if request_id.is_empty() {
+                    return Self::error_reply(
+                        api_id,
+                        ErrorCode::InvalidRequest,
+                        "stdin_response needs a non-empty `request_id`",
+                    );
+                }
+                let Some(input) = request["input"].as_str() else {
+                    return Self::error_reply(
+                        api_id,
+                        ErrorCode::InvalidRequest,
+                        "stdin_response needs a string `input`",
+                    );
+                };
+                let id = self.legacy_id();
+                self.pending_simple.push((id, api_id, SimpleKind::DoneOk));
+                vec![Outbound::Legacy(json!({
+                    "type": "stdin_response",
+                    "id": id,
+                    "request_id": request_id,
+                    "input": input,
+                }))]
+            }
             other => vec![Outbound::Reply(ServerFrame::reply(
                 api_id,
                 ApiEvent::Error {
@@ -910,6 +938,13 @@ impl BridgeState {
                 output: event["output"].as_str().unwrap_or("").to_string(),
                 error: event["error"].as_str().map(str::to_string),
             })],
+            "stdin_request" => vec![ServerFrame::event(ApiEvent::StdinRequest {
+                session_id: session(self),
+                request_id: event["request_id"].as_str().unwrap_or("").to_string(),
+                prompt: event["prompt"].as_str().unwrap_or("").to_string(),
+                is_password: event["is_password"].as_bool().unwrap_or(false),
+                tool_call_id: event["tool_call_id"].as_str().unwrap_or("").to_string(),
+            })],
             "side_pane_images" => vec![ServerFrame::event(ApiEvent::SidePaneImages {
                 session_id: event["session_id"]
                     .as_str()
@@ -935,6 +970,8 @@ impl BridgeState {
                     vec![ServerFrame::event(ApiEvent::TurnDone {
                         session_id: session(self),
                     })]
+                } else if let Some(api_id) = self.take_simple(id, SimpleKind::DoneOk) {
+                    vec![ServerFrame::reply(api_id, ApiEvent::Ok)]
                 } else {
                     vec![]
                 }

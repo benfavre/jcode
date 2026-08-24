@@ -592,6 +592,16 @@ export class JcodeClient extends EventEmitter {
     });
   }
 
+  /** Send input to a running tool that emitted a `stdin_request` event. */
+  async respondToStdin(sessionId: string, requestId: string, input: string): Promise<void> {
+    await this.requestOk({
+      req: "stdin_response",
+      session_id: sessionId,
+      request_id: requestId,
+      input,
+    });
+  }
+
   /**
    * Models this session can switch to, and which one is serving it.
    *

@@ -127,7 +127,7 @@ fn advertised_capabilities_cover_managed_execution_controls() {
         "streaming",
         "cancellation",
         "soft_interrupt",
-        "permission_requests",
+        "stdin_requests",
         "history",
         "model_catalog",
         "usage",
