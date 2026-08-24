@@ -47,7 +47,7 @@ pub const HARNESS_CAPABILITIES: [&str; 15] = [
     "streaming",
     "cancellation",
     "soft_interrupt",
-    "permission_requests",
+    "stdin_requests",
     "history",
     "model_catalog",
     "reasoning_effort",

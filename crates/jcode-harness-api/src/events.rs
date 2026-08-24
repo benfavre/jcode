@@ -140,6 +140,16 @@ pub enum ApiEvent {
         description: String,
     },
 
+    /// A running tool is blocked waiting for interactive stdin.
+    StdinRequest {
+        session_id: String,
+        request_id: String,
+        prompt: String,
+        #[serde(default)]
+        is_password: bool,
+        tool_call_id: String,
+    },
+
     /// Session-level status change (idle, generating, tool_running, ...).
     SessionStatus { session_id: String, status: String },
 

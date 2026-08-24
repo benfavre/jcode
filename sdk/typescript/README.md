@@ -160,8 +160,10 @@ for await (const event of client.events(session.session_id)) {
     case "tool_start":
       console.log("\n[tool]", event.name);
       break;
-    case "permission_request":
-      await client.respondToPermission(session.session_id, event.request_id, "allow");
+    case "stdin_request":
+      // Keep passwords out of logs and persistent transcripts.
+      const input = await readInteractiveInput(event.prompt, event.is_password);
+      await client.respondToStdin(session.session_id, event.request_id, input);
       break;
     case "turn_done":
       return;
@@ -219,6 +221,7 @@ discovery pass only.
 | `getHistory(id)` / `peekSession(id, limit?)` | Read a transcript (peek works unattached) |
 | `clear(id)` / `rewind(id, index)` | Edit history |
 | `respondToPermission(id, requestId, decision)` | Answer a permission prompt |
+| `respondToStdin(id, requestId, input)` | Answer an interactive stdin prompt from a running tool |
 | `listModels(id)` / `setModel(id, model)` | List and choose the session's model |
 | `getRuntimeInfo(id)` | Provider, model route, protocol, capability, and health metadata |
 | `setApiKey(provider, key)` / `clearApiKey(provider)` | Atomically provision or remove owner-only API-key files |

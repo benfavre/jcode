@@ -131,6 +131,25 @@ test("run() collects a full turn and auto-approves permissions", async () => {
   await server.close();
 });
 
+test("respondToStdin sends the correlated interactive input", async () => {
+  let received: any;
+  const server = await startMockHarness({
+    onRequest(request, send) {
+      if (request.req === "stdin_response") {
+        received = request;
+        send({ v: 1, reply_to: request.id, ev: "ok" });
+      }
+    },
+  });
+  const client = await JcodeClient.connect({ socketPath: server.socketPath });
+  await client.respondToStdin("s1", "stdin-7", "secret");
+  assert.equal(received.session_id, "s1");
+  assert.equal(received.request_id, "stdin-7");
+  assert.equal(received.input, "secret");
+  client.close();
+  await server.close();
+});
+
 test("sendMessage supports context-only options and waits for request completion", async () => {
   let received: any;
   const server = await startMockHarness({

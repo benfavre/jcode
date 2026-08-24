@@ -106,6 +106,13 @@ pub enum ApiRequest {
         decision: PermissionDecision,
     },
 
+    /// Send input to a running tool that emitted a `StdinRequest` event.
+    StdinResponse {
+        session_id: String,
+        request_id: String,
+        input: String,
+    },
+
     /// List the models this session can switch to.
     ///
     /// A client that cannot enumerate models cannot offer a model picker, so

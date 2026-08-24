@@ -104,6 +104,7 @@ export type ApiRequest =
       request_id: string;
       decision: PermissionDecision;
     }
+  | { req: "stdin_response"; session_id: string; request_id: string; input: string }
   | { req: "list_models"; session_id: string }
   | { req: "get_runtime_info"; session_id: string }
   | { req: "set_api_key"; provider: string; api_key: string }
@@ -167,6 +168,14 @@ export type ApiEvent =
       request_id: string;
       tool_name: string;
       description: string;
+    }
+  | {
+      ev: "stdin_request";
+      session_id: string;
+      request_id: string;
+      prompt: string;
+      is_password: boolean;
+      tool_call_id: string;
     }
   | { ev: "session_status"; session_id: string; status: string }
   | { ev: "connection_phase"; session_id: string; phase: string }
@@ -266,6 +275,7 @@ export const KNOWN_EVENT_KINDS = [
   "background_progress",
   "message_accepted",
   "permission_request",
+  "stdin_request",
   "session_status",
   "connection_phase",
   "model_info",
@@ -298,6 +308,7 @@ export const KNOWN_REQUEST_KINDS = [
   "clear",
   "rewind",
   "permission_response",
+  "stdin_response",
   "list_models",
   "get_runtime_info",
   "set_api_key",
