@@ -1726,3 +1726,62 @@ async fn one_shot_cleanup_preserves_the_original_command_error() {
         ));
     }
 }
+
+/// Fork patch: answer text from consecutive turns of one `run` (auto-poke
+/// follow-ups) is separated by a blank line in the final `done.text`.
+#[test]
+fn ndjson_run_text_separates_follow_up_turns_with_a_blank_line() {
+    use crate::protocol::ServerEvent;
+
+    let mut out = Vec::new();
+    let mut state = NdjsonRunState::default();
+    let mut delta = |state: &mut NdjsonRunState, text: &str| {
+        emit_ndjson_event(&mut out, state, ServerEvent::TextDelta { text: text.into() })
+            .expect("emit text delta");
+    };
+
+    // Deltas inside one turn are concatenated verbatim.
+    delta(&mut state, "First ");
+    delta(&mut state, "turn done.");
+    assert_eq!(state.text, "First turn done.");
+
+    // A follow-up turn that answers starts after exactly one blank line.
+    state.begin_follow_up_turn();
+    delta(&mut state, "");
+    delta(&mut state, "Second turn ");
+    delta(&mut state, "verified.");
+    assert_eq!(state.text, "First turn done.\n\nSecond turn verified.");
+
+    // Existing newlines count towards the separator rather than stacking.
+    delta(&mut state, "\n");
+    state.begin_follow_up_turn();
+    delta(&mut state, "\nThird.");
+    assert_eq!(
+        state.text,
+        "First turn done.\n\nSecond turn verified.\n\nThird."
+    );
+
+    // A silent follow-up turn leaves no trailing whitespace.
+    state.begin_follow_up_turn();
+    assert_eq!(
+        state.text,
+        "First turn done.\n\nSecond turn verified.\n\nThird."
+    );
+
+    // The streamed text_delta events themselves are unchanged.
+    let streamed: String = String::from_utf8(out)
+        .expect("utf8 ndjson")
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("json line"))
+        .map(|event| event["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert_eq!(streamed, "First turn done.Second turn verified.\n\nThird.");
+}
+
+#[test]
+fn ndjson_run_text_has_no_leading_separator_when_the_first_turn_was_silent() {
+    let mut state = NdjsonRunState::default();
+    state.begin_follow_up_turn();
+    state.push_answer_text("Only answer.");
+    assert_eq!(state.text, "Only answer.");
+}

@@ -2065,12 +2065,42 @@ struct RunCommandReport {
 #[derive(Debug, Default)]
 struct NdjsonRunState {
     text: String,
+    /// Fork patch: a follow-up (auto-poke) turn has started and has produced
+    /// no answer text yet. The first text it produces is separated from the
+    /// previous turn's answer by a blank line in the final `done.text`.
+    turn_break_pending: bool,
     session_id: Option<String>,
     upstream_provider: Option<String>,
     connection_type: Option<String>,
     connection_phase: Option<String>,
     status_detail: Option<String>,
     usage: crate::agent::TokenUsage,
+}
+
+impl NdjsonRunState {
+    /// Mark the boundary between two turns of one `run` (an auto-poke
+    /// follow-up). Nothing is appended until the next turn really answers, so
+    /// a silent follow-up leaves no trailing whitespace.
+    fn begin_follow_up_turn(&mut self) {
+        self.turn_break_pending = true;
+    }
+
+    /// Accumulate streamed answer text for the final `done.text`. Without the
+    /// separator, the last sentence of one turn and the first of the next are
+    /// glued together ("...done.Everything is verified...").
+    fn push_answer_text(&mut self, text: &str) {
+        if self.turn_break_pending && !text.is_empty() {
+            self.turn_break_pending = false;
+            if !self.text.is_empty() {
+                let trailing = self.text.len() - self.text.trim_end_matches('\n').len();
+                let leading = text.len() - text.trim_start_matches('\n').len();
+                for _ in (trailing + leading)..2 {
+                    self.text.push('\n');
+                }
+            }
+        }
+        self.text.push_str(text);
+    }
 }
 
 pub fn run_auth_status_command(emit_json: bool) -> Result<()> {
@@ -3058,6 +3088,9 @@ async fn run_single_message_command_ndjson(
     let mut confidence_spike_challenged = false;
     let mut gate_digest_delivered = false;
     loop {
+        if turns_completed > 0 {
+            state.begin_follow_up_turn();
+        }
         let turn_result = {
             let mut run_future = std::pin::pin!(agent.run_once_streaming_mpsc(
                 &next_message,
@@ -3248,13 +3281,14 @@ fn emit_ndjson_event(
 
     match event {
         ServerEvent::TextDelta { text } => {
-            state.text.push_str(&text);
+            state.push_answer_text(&text);
             write_json_line(
                 stdout,
                 &serde_json::json!({ "type": "text_delta", "text": text }),
             )
         }
         ServerEvent::TextReplace { text } => {
+            state.turn_break_pending = false;
             state.text = text.clone();
             write_json_line(
                 stdout,
