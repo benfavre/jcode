@@ -1736,8 +1736,12 @@ fn ndjson_run_text_separates_follow_up_turns_with_a_blank_line() {
     let mut out = Vec::new();
     let mut state = NdjsonRunState::default();
     let mut delta = |state: &mut NdjsonRunState, text: &str| {
-        emit_ndjson_event(&mut out, state, ServerEvent::TextDelta { text: text.into() })
-            .expect("emit text delta");
+        emit_ndjson_event(
+            &mut out,
+            state,
+            ServerEvent::TextDelta { text: text.into() },
+        )
+        .expect("emit text delta");
     };
 
     // Deltas inside one turn are concatenated verbatim.
@@ -1795,19 +1799,57 @@ fn ndjson_run_reports_one_complete_tool_input_per_call() {
     let mut out = Vec::new();
     let mut state = NdjsonRunState::default();
     let events = vec![
-        ServerEvent::ToolStart { id: "c1".into(), name: "write".into() },
-        ServerEvent::ToolInput { id: Some("c1".into()), delta: "{\"intent\":\"Create".into() },
-        ServerEvent::ToolStart { id: "c2".into(), name: "read".into() },
-        ServerEvent::ToolInput { id: Some("c2".into()), delta: "{\"intent\":\"Read\"}".into() },
-        ServerEvent::ToolInput { id: Some("c1".into()), delta: " file\",\"n\":null}".into() },
-        ServerEvent::ToolExec { id: "c1".into(), name: "write".into() },
-        ServerEvent::ToolDone { id: "c1".into(), name: "write".into(), output: "ok".into(), error: None },
-        ServerEvent::ToolExec { id: "c2".into(), name: "read".into() },
+        ServerEvent::ToolStart {
+            id: "c1".into(),
+            name: "write".into(),
+        },
+        ServerEvent::ToolInput {
+            id: Some("c1".into()),
+            delta: "{\"intent\":\"Create".into(),
+        },
+        ServerEvent::ToolStart {
+            id: "c2".into(),
+            name: "read".into(),
+        },
+        ServerEvent::ToolInput {
+            id: Some("c2".into()),
+            delta: "{\"intent\":\"Read\"}".into(),
+        },
+        ServerEvent::ToolInput {
+            id: Some("c1".into()),
+            delta: " file\",\"n\":null}".into(),
+        },
+        ServerEvent::ToolExec {
+            id: "c1".into(),
+            name: "write".into(),
+        },
+        ServerEvent::ToolDone {
+            id: "c1".into(),
+            name: "write".into(),
+            output: "ok".into(),
+            error: None,
+        },
+        ServerEvent::ToolExec {
+            id: "c2".into(),
+            name: "read".into(),
+        },
         // An unlabelled argument stream belongs to the next executed call.
-        ServerEvent::ToolStart { id: "c3".into(), name: "ls".into() },
-        ServerEvent::ToolInput { id: None, delta: "{\"intent\":".into() },
-        ServerEvent::ToolInput { id: None, delta: "\"List\"}".into() },
-        ServerEvent::ToolExec { id: "c3".into(), name: "ls".into() },
+        ServerEvent::ToolStart {
+            id: "c3".into(),
+            name: "ls".into(),
+        },
+        ServerEvent::ToolInput {
+            id: None,
+            delta: "{\"intent\":".into(),
+        },
+        ServerEvent::ToolInput {
+            id: None,
+            delta: "\"List\"}".into(),
+        },
+        ServerEvent::ToolExec {
+            id: "c3".into(),
+            name: "ls".into(),
+        },
     ];
     for event in events {
         emit_ndjson_event(&mut out, &mut state, event).expect("emit event");
@@ -1818,12 +1860,23 @@ fn ndjson_run_reports_one_complete_tool_input_per_call() {
         .lines()
         .map(|line| serde_json::from_str(line).expect("json line"))
         .collect();
-    let shape: Vec<&str> = lines.iter().map(|line| line["type"].as_str().unwrap()).collect();
+    let shape: Vec<&str> = lines
+        .iter()
+        .map(|line| line["type"].as_str().unwrap())
+        .collect();
     assert_eq!(
         shape,
         [
-            "tool_start", "tool_start", "tool_input", "tool_exec", "tool_done", "tool_input",
-            "tool_exec", "tool_start", "tool_input", "tool_exec",
+            "tool_start",
+            "tool_start",
+            "tool_input",
+            "tool_exec",
+            "tool_done",
+            "tool_input",
+            "tool_exec",
+            "tool_start",
+            "tool_input",
+            "tool_exec",
         ]
     );
     let intents: Vec<String> = lines

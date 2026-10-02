@@ -1753,8 +1753,7 @@ impl BridgeState {
             }
             "tool_done" => {
                 // Fork: arguments of a call that completed without `tool_exec`.
-                let mut frames =
-                    self.take_coalesced_tool_input(event["id"].as_str().unwrap_or(""));
+                let mut frames = self.take_coalesced_tool_input(event["id"].as_str().unwrap_or(""));
                 frames.push(ServerFrame::event(ApiEvent::ToolDone {
                     session_id: session(self),
                     call_id: event["id"].as_str().unwrap_or("").to_string(),

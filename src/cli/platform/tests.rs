@@ -1,4 +1,3 @@
-
 use super::*;
 use jcode_operator_backend::platform_contract::{
     ActionReceipt, Attachment, Capabilities, ControlLease, CursorTopic, Freshness, FreshnessState,

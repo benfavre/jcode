@@ -575,8 +575,14 @@ async fn registry_execute_treats_null_arguments_as_absent() {
             ctx("batched"),
         )
         .await;
-    assert!(batched.is_ok(), "null in a batch sub-call failed: {batched:?}");
-    assert_eq!(std::fs::read_to_string(&file).expect("read back"), "gamma\n");
+    assert!(
+        batched.is_ok(),
+        "null in a batch sub-call failed: {batched:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&file).expect("read back"),
+        "gamma\n"
+    );
 }
 
 #[tokio::test]

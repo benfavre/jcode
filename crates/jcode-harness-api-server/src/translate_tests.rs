@@ -4119,22 +4119,36 @@ fn coalesced_tool_input_is_one_frame_before_tool_exec() {
     let kinds = |frames: &[ServerFrame]| -> Vec<String> {
         frames
             .iter()
-            .map(|frame| serde_json::to_value(frame).unwrap()["ev"].as_str().unwrap().to_string())
+            .map(|frame| {
+                serde_json::to_value(frame).unwrap()["ev"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
             .collect()
     };
 
     let started = state.legacy_event_to_api(&json!({"type":"tool_start","id":"c1","name":"write"}));
     assert_eq!(kinds(&started), ["tool_start"]);
     // Interleaved arguments of two calls are held back, each under its id.
-    for (id, delta) in [("c1", "{\"file"), ("c2", "{\"a\":"), ("c1", "_path\":\"é\"}"), ("c2", "1}")] {
-        let frames =
-            state.legacy_event_to_api(&json!({"type":"tool_input","id":id,"delta":delta}));
+    for (id, delta) in [
+        ("c1", "{\"file"),
+        ("c2", "{\"a\":"),
+        ("c1", "_path\":\"é\"}"),
+        ("c2", "1}"),
+    ] {
+        let frames = state.legacy_event_to_api(&json!({"type":"tool_input","id":id,"delta":delta}));
         assert!(frames.is_empty(), "argument token leaked: {frames:?}");
     }
 
     let exec = state.legacy_event_to_api(&json!({"type":"tool_exec","id":"c1","name":"write"}));
     assert_eq!(kinds(&exec), ["tool_input_delta", "tool_exec"]);
-    let ApiEvent::ToolInputDelta { call_id, delta, session_id } = &exec[0].event else {
+    let ApiEvent::ToolInputDelta {
+        call_id,
+        delta,
+        session_id,
+    } = &exec[0].event
+    else {
         panic!("expected the coalesced arguments first");
     };
     assert_eq!((call_id.as_str(), session_id.as_str()), ("c1", "s1"));
@@ -4142,13 +4156,11 @@ fn coalesced_tool_input_is_one_frame_before_tool_exec() {
 
     // A call that completes without `tool_exec` still reports its arguments,
     // and nothing is reported twice.
-    let done = state.legacy_event_to_api(
-        &json!({"type":"tool_done","id":"c2","name":"read","output":"ok"}),
-    );
+    let done = state
+        .legacy_event_to_api(&json!({"type":"tool_done","id":"c2","name":"read","output":"ok"}));
     assert_eq!(kinds(&done), ["tool_input_delta", "tool_done"]);
-    let done = state.legacy_event_to_api(
-        &json!({"type":"tool_done","id":"c1","name":"write","output":"ok"}),
-    );
+    let done = state
+        .legacy_event_to_api(&json!({"type":"tool_done","id":"c1","name":"write","output":"ok"}));
     assert_eq!(kinds(&done), ["tool_done"]);
 }
 

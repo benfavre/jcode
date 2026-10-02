@@ -466,8 +466,7 @@ fn resolve_with(
     resolve_providers(providers, load)
 }
 
-const JEV_DISABLED_MESSAGE: &str =
-    "Jev decisions are disabled (provider \"off\"). Select auto, jcode, openrouter, typesafe, or aimlapi to enable them.";
+const JEV_DISABLED_MESSAGE: &str = "Jev decisions are disabled (provider \"off\"). Select auto, jcode, openrouter, typesafe, or aimlapi to enable them.";
 
 /// Environment selector for the memory recall Jev route.
 pub const MEMORY_PROVIDER_ENV: &str = PROVIDER_ENV;
@@ -2032,11 +2031,20 @@ mod tests {
     #[test]
     fn unattended_runs_keep_memory_recall_off_unless_selected() {
         // Default configuration and no environment: forced off.
-        assert_eq!(unattended_memory_selector_override(None, "auto"), Some("off"));
-        assert_eq!(unattended_memory_selector_override(None, " Auto "), Some("off"));
+        assert_eq!(
+            unattended_memory_selector_override(None, "auto"),
+            Some("off")
+        );
+        assert_eq!(
+            unattended_memory_selector_override(None, " Auto "),
+            Some("off")
+        );
         // A concrete configured route, or any environment choice, is an opt-in.
         assert_eq!(unattended_memory_selector_override(None, "typesafe"), None);
         assert_eq!(unattended_memory_selector_override(None, "off"), None);
-        assert_eq!(unattended_memory_selector_override(Some("auto"), "auto"), None);
+        assert_eq!(
+            unattended_memory_selector_override(Some("auto"), "auto"),
+            None
+        );
     }
 }

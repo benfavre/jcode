@@ -83,6 +83,9 @@ mod tests {
         assert_eq!(strip_null_arguments(nested.clone()), nested);
         assert_eq!(strip_null_arguments(json!(null)), json!(null));
         assert_eq!(strip_null_arguments(json!("raw")), json!("raw"));
-        assert_eq!(strip_null_arguments(json!([{"a": null}])), json!([{"a": null}]));
+        assert_eq!(
+            strip_null_arguments(json!([{"a": null}])),
+            json!([{"a": null}])
+        );
     }
 }
