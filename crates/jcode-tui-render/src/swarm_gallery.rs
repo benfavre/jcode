@@ -710,6 +710,8 @@ pub fn render_swarm_strip(
     };
 
     let mut spans: Vec<Span<'static>> = lead;
+    let mut task_used = 0usize;
+
     let used: usize = if shown == 0 && !chips.is_empty() {
         // Degenerate width: show the first chip truncated.
         let budget = width.saturating_sub(lead_w + if show_tally { tail_w + gap } else { 0 });
@@ -721,7 +723,6 @@ pub fn render_swarm_strip(
         spans.push(Span::styled(name.clone(), style));
         disp_w(&c.glyph) + 1 + disp_w(&name)
     } else {
-        let mut task_used = 0usize;
         for (i, chip) in chips.iter().take(shown).enumerate() {
             if i > 0 {
                 spans.push(Span::raw(CHIP_SEP));
