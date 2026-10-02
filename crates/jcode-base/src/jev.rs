@@ -458,9 +458,38 @@ fn resolve_with(
         "typesafe" => &[JevProvider::TypeSafe],
         "aimlapi" => &[JevProvider::Aimlapi],
         "jcode" | "subscription" | "jcode-subscription" => &[JevProvider::Jcode],
+        // Fork patch: an explicit off switch. No credential is looked up, so
+        // an ambient provider key can never route recall to a remote service.
+        "off" | "none" | "disabled" => bail!("{JEV_DISABLED_MESSAGE}"),
         _ => bail!("Invalid Jev provider. Choose auto, openrouter, typesafe, aimlapi, or jcode"),
     };
     resolve_providers(providers, load)
+}
+
+const JEV_DISABLED_MESSAGE: &str =
+    "Jev decisions are disabled (provider \"off\"). Select auto, jcode, openrouter, typesafe, or aimlapi to enable them.";
+
+/// Environment selector for the memory recall Jev route.
+pub const MEMORY_PROVIDER_ENV: &str = PROVIDER_ENV;
+
+/// Fork patch: the selector an unattended `jcode run` should force, if any.
+///
+/// Upstream's default `auto` sends the recall query and candidate memories to
+/// whichever remote Jev route has a credential, including a provider key that
+/// was only configured for model access. Unattended runs must opt in
+/// instead: recall stays off unless the environment selects a route or the
+/// configuration names something other than the default `auto`.
+pub fn unattended_memory_selector_override(
+    env_selector: Option<&str>,
+    configured_selector: &str,
+) -> Option<&'static str> {
+    if env_selector.is_some() {
+        return None;
+    }
+    configured_selector
+        .trim()
+        .eq_ignore_ascii_case("auto")
+        .then_some("off")
 }
 
 fn resolve_providers(
@@ -1983,5 +2012,31 @@ mod tests {
             assert_eq!(requests.len(), 1);
             assert!(requests[0].starts_with("GET /v1/me "));
         }
+    }
+
+    #[test]
+    fn off_selector_never_consults_credentials() {
+        for selector in ["off", "none", "disabled", " OFF "] {
+            let mut consulted = false;
+            let error = resolve_with(selector, |_, _| {
+                consulted = true;
+                Some("present".into())
+            })
+            .err()
+            .expect("an off selector must not resolve a provider");
+            assert!(!consulted, "{selector} looked up a credential");
+            assert!(error.to_string().contains("disabled"), "{error}");
+        }
+    }
+
+    #[test]
+    fn unattended_runs_keep_memory_recall_off_unless_selected() {
+        // Default configuration and no environment: forced off.
+        assert_eq!(unattended_memory_selector_override(None, "auto"), Some("off"));
+        assert_eq!(unattended_memory_selector_override(None, " Auto "), Some("off"));
+        // A concrete configured route, or any environment choice, is an opt-in.
+        assert_eq!(unattended_memory_selector_override(None, "typesafe"), None);
+        assert_eq!(unattended_memory_selector_override(None, "off"), None);
+        assert_eq!(unattended_memory_selector_override(Some("auto"), "auto"), None);
     }
 }

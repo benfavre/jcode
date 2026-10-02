@@ -495,7 +495,9 @@ swarm_max_concurrent_agents = 32
 # swarm_strip_layout = "vertical"
 #
 # Recall uses Jev typed Decisions directly, without embeddings or a sidecar LLM.
-# Provider values: auto, jcode, openrouter, typesafe, aimlapi.
+# Provider values: auto, jcode, openrouter, typesafe, aimlapi, off.
+# `jcode run` (unattended) treats the default auto as off: name a concrete
+# provider here, or export JCODE_MEMORY_JEV_PROVIDER, to opt in.
 # auto prefers Jcode, then OpenRouter, TypeSafe, AI/ML API credentials.
 # Env override: JCODE_MEMORY_JEV_PROVIDER
 # memory_jev_provider = "auto"

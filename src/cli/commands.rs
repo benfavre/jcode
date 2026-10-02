@@ -2559,6 +2559,15 @@ pub async fn run_single_message_command(
     emit_ndjson: bool,
     output_last_message: Option<&Path>,
 ) -> Result<()> {
+    // Fork patch: remote (Jev) memory recall is opt-in for unattended runs.
+    // See `jev::unattended_memory_selector_override`.
+    let env_selector = std::env::var(crate::jev::MEMORY_PROVIDER_ENV).ok();
+    if let Some(selector) = crate::jev::unattended_memory_selector_override(
+        env_selector.as_deref(),
+        &crate::config::config().agents.memory_jev_provider,
+    ) {
+        crate::env::set_var(crate::jev::MEMORY_PROVIDER_ENV, selector);
+    }
     let provider = if emit_json || emit_ndjson {
         super::provider_init::init_provider_quiet(choice, model).await?
     } else {
