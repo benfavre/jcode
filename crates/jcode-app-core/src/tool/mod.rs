@@ -33,6 +33,7 @@ mod jcode_docs;
 mod ls;
 pub mod mcp;
 mod memory;
+mod null_args;
 mod open;
 mod panel;
 mod patch;
@@ -923,6 +924,15 @@ impl Registry {
 
         // Drop the lock before executing
         drop(tools);
+
+        // Fork patch: an explicit JSON null means "argument not provided" for
+        // first-party tools. Third-party schemas (SDK callbacks, MCP) are left
+        // exactly as the model sent them.
+        let input = if is_custom || is_mcp_tool_name(resolved_name) {
+            input
+        } else {
+            null_args::strip_null_arguments(input)
+        };
 
         let working_dir = ctx
             .working_dir

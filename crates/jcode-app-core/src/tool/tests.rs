@@ -520,6 +520,65 @@ async fn test_batch_resolves_oauth_names() {
     assert!(result.is_ok(), "shell_exec should resolve to bash tool");
 }
 
+/// Fork patch: `"key": null` means "argument absent" for first-party tools,
+/// both for a direct call and for a `batch` sub-call. `edit.replace_all` is a
+/// plain `bool`, so it rejects null unless the registry strips it first.
+#[tokio::test]
+async fn registry_execute_treats_null_arguments_as_absent() {
+    let provider: Arc<dyn Provider> = Arc::new(MockProvider);
+    let registry = Registry::new(provider).await;
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("null-args.txt");
+    std::fs::write(&file, "alpha\n").expect("seed file");
+    let ctx = |call: &str| ToolContext {
+        session_id: "null-args".to_string(),
+        message_id: "null-args".to_string(),
+        tool_call_id: call.to_string(),
+        working_dir: Some(dir.path().to_path_buf()),
+        stdin_request_tx: None,
+        graceful_shutdown_signal: None,
+        execution_mode: ToolExecutionMode::Direct,
+    };
+
+    let direct = registry
+        .execute(
+            "edit",
+            serde_json::json!({
+                "file_path": file.to_string_lossy(),
+                "old_string": "alpha",
+                "new_string": "beta",
+                "replace_all": null,
+                "intent": null,
+            }),
+            ctx("direct"),
+        )
+        .await;
+    assert!(direct.is_ok(), "null optional arguments failed: {direct:?}");
+    assert_eq!(std::fs::read_to_string(&file).expect("read back"), "beta\n");
+
+    let batched = registry
+        .execute(
+            "batch",
+            serde_json::json!({
+                "intent": null,
+                "tool_calls": [{
+                    "tool": "edit",
+                    "intent": null,
+                    "parameters": {
+                        "file_path": file.to_string_lossy(),
+                        "old_string": "beta",
+                        "new_string": "gamma",
+                        "replace_all": null,
+                    },
+                }],
+            }),
+            ctx("batched"),
+        )
+        .await;
+    assert!(batched.is_ok(), "null in a batch sub-call failed: {batched:?}");
+    assert_eq!(std::fs::read_to_string(&file).expect("read back"), "gamma\n");
+}
+
 #[tokio::test]
 async fn registry_execute_enforces_session_tool_policy_after_alias_resolution() {
     let provider: Arc<dyn Provider> = Arc::new(MockProvider);
