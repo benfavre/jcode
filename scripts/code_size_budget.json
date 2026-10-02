@@ -43,7 +43,7 @@
     "crates/jcode-base/src/skill.rs": 1582,
     "crates/jcode-base/src/todo.rs": 2320,
     "crates/jcode-config-types/src/lib.rs": 1726,
-    "crates/jcode-harness-api-server/src/translate.rs": 3549,
+    "crates/jcode-harness-api-server/src/translate.rs": 3632,
     "crates/jcode-import-core/src/lib.rs": 1645,
     "crates/jcode-plan/src/lib.rs": 1201,
     "crates/jcode-protocol/src/wire.rs": 1690,
@@ -116,7 +116,7 @@
     "src/cli/acp.rs": 2201,
     "src/cli/args.rs": 1274,
     "src/cli/cloud_move.rs": 1705,
-    "src/cli/commands.rs": 3632,
+    "src/cli/commands.rs": 3687,
     "src/cli/dispatch.rs": 1573,
     "src/cli/login.rs": 1454,
     "src/cli/provider_init.rs": 1919

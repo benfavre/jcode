@@ -1,9 +1,9 @@
 {
-  "total": 3656,
+  "total": 3657,
   "totals_by_pattern": {
     "dot_ok": 1398,
     "let_underscore": 1357,
-    "unwrap_or_default": 901
+    "unwrap_or_default": 902
   },
   "tracked_files": {
     "crates/jcode-app-core/src/agent.rs": {
@@ -1319,7 +1319,7 @@
     "crates/jcode-harness-api-server/src/translate.rs": {
       "dot_ok": 24,
       "let_underscore": 7,
-      "unwrap_or_default": 42
+      "unwrap_or_default": 43
     },
     "crates/jcode-harness-api/examples/harness_repl.rs": {
       "dot_ok": 0,

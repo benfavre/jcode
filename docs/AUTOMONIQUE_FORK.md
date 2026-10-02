@@ -107,6 +107,10 @@ Kept across the v0.90 synchronization, each small enough to drop on its own:
 - Null-valued tool arguments are treated as absent for first-party tools
   (`tool/null_args.rs`).
 - `run --ndjson` separates auto-poke turns with a blank line in `done.text`.
+- Tool arguments are reported once per call, complete, just before
+  `tool_exec`: as one `tool_input` event by `run --ndjson`, and as one
+  `tool_input_delta` (split only above 256 KiB) by `api-stdio`. Upstream's
+  socket bridge and `api --stdio` keep live per-token argument deltas.
 - Remote (Jev) memory recall is opt-in for unattended `jcode run`: the default
   `memory_jev_provider = "auto"` is treated as `off` there. Name a concrete
   provider in `[agents]`, or export `JCODE_MEMORY_JEV_PROVIDER`, to opt in.

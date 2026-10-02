@@ -4107,3 +4107,83 @@ fn untitled_indexed_sessions_are_named_after_their_first_prompt_once() {
         Some("Rename the sidebar rows")
     );
 }
+
+/// Fork: the supervised stdio transport reports one argument frame per tool
+/// call, emitted just before `tool_exec`, instead of one frame per token.
+#[test]
+fn coalesced_tool_input_is_one_frame_before_tool_exec() {
+    let mut state = BridgeState {
+        coalesce_tool_input: true,
+        ..state_with_session()
+    };
+    let kinds = |frames: &[ServerFrame]| -> Vec<String> {
+        frames
+            .iter()
+            .map(|frame| serde_json::to_value(frame).unwrap()["ev"].as_str().unwrap().to_string())
+            .collect()
+    };
+
+    let started = state.legacy_event_to_api(&json!({"type":"tool_start","id":"c1","name":"write"}));
+    assert_eq!(kinds(&started), ["tool_start"]);
+    // Interleaved arguments of two calls are held back, each under its id.
+    for (id, delta) in [("c1", "{\"file"), ("c2", "{\"a\":"), ("c1", "_path\":\"é\"}"), ("c2", "1}")] {
+        let frames =
+            state.legacy_event_to_api(&json!({"type":"tool_input","id":id,"delta":delta}));
+        assert!(frames.is_empty(), "argument token leaked: {frames:?}");
+    }
+
+    let exec = state.legacy_event_to_api(&json!({"type":"tool_exec","id":"c1","name":"write"}));
+    assert_eq!(kinds(&exec), ["tool_input_delta", "tool_exec"]);
+    let ApiEvent::ToolInputDelta { call_id, delta, session_id } = &exec[0].event else {
+        panic!("expected the coalesced arguments first");
+    };
+    assert_eq!((call_id.as_str(), session_id.as_str()), ("c1", "s1"));
+    assert_eq!(delta, "{\"file_path\":\"é\"}");
+
+    // A call that completes without `tool_exec` still reports its arguments,
+    // and nothing is reported twice.
+    let done = state.legacy_event_to_api(
+        &json!({"type":"tool_done","id":"c2","name":"read","output":"ok"}),
+    );
+    assert_eq!(kinds(&done), ["tool_input_delta", "tool_done"]);
+    let done = state.legacy_event_to_api(
+        &json!({"type":"tool_done","id":"c1","name":"write","output":"ok"}),
+    );
+    assert_eq!(kinds(&done), ["tool_done"]);
+}
+
+#[test]
+fn coalesced_tool_input_is_split_below_the_host_frame_bound() {
+    let mut state = BridgeState {
+        coalesce_tool_input: true,
+        ..state_with_session()
+    };
+    let arguments = "é".repeat(200 * 1024); // 400 KiB of two-byte characters
+    for chunk in arguments.as_bytes().chunks(4096) {
+        let delta = std::str::from_utf8(chunk).unwrap();
+        state.legacy_event_to_api(&json!({"type":"tool_input","id":"big","delta":delta}));
+    }
+    let frames = state.legacy_event_to_api(&json!({"type":"tool_exec","id":"big","name":"write"}));
+    let deltas: Vec<&str> = frames
+        .iter()
+        .filter_map(|frame| match &frame.event {
+            ApiEvent::ToolInputDelta { delta, .. } => Some(delta.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(deltas.len(), 2);
+    assert!(deltas.iter().all(|delta| delta.len() <= 256 * 1024));
+    assert_eq!(deltas.concat(), arguments);
+}
+
+/// Upstream clients (socket bridge, `api --stdio`) keep live argument deltas.
+#[test]
+fn tool_input_streams_live_unless_coalescing_is_requested() {
+    let mut state = state_with_session();
+    let frames =
+        state.legacy_event_to_api(&json!({"type":"tool_input","id":"c1","delta":"{\"a\""}));
+    assert!(matches!(
+        &frames[..],
+        [ServerFrame { event: ApiEvent::ToolInputDelta { delta, .. }, .. }] if delta == "{\"a\""
+    ));
+}

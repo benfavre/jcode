@@ -110,6 +110,28 @@ type SessionFileStatusResult = Result<SessionFileStatus, (ErrorCode, String)>;
 static NEXT_LEGACY_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_TEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Fork (Automonique): whether new connections coalesce streamed tool
+/// arguments. Set once by the supervised `api-stdio` transport, whose process
+/// serves exactly one client; socket and `api --stdio` clients keep upstream's
+/// live argument deltas.
+static COALESCE_TOOL_INPUT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Largest `delta` of one coalesced `tool_input_delta` frame. A supervising
+/// host bounds frames (Automonique: 1 MiB), so very large arguments are split
+/// into a few frames instead of one unbounded frame.
+const COALESCED_TOOL_INPUT_CHUNK_BYTES: usize = 256 * 1024;
+
+/// Fork (Automonique): make every later connection of this process report one
+/// `tool_input_delta` per tool call (complete arguments, emitted just before
+/// `tool_exec`) instead of one per streamed token.
+///
+/// A supervising host that counts events per session would otherwise see a
+/// large `write` as thousands of frames. This restores the pre-v0.90 shape.
+pub fn set_coalesce_tool_input(enabled: bool) {
+    COALESCE_TOOL_INPUT.store(enabled, Ordering::Relaxed);
+}
+
 /// Per-connection translation state.
 #[derive(Debug, Default)]
 pub struct BridgeState {
@@ -145,6 +167,10 @@ pub struct BridgeState {
     /// Fork: API id of the in-flight `message` request, so a terminal daemon
     /// `error` identifies the exact `send_message` that failed.
     pending_message_api_id: Option<u64>,
+    /// Fork: see [`set_coalesce_tool_input`].
+    pub coalesce_tool_input: bool,
+    /// Fork: streamed tool arguments held back per call id while coalescing.
+    pending_tool_inputs: Vec<(String, String)>,
     /// Legacy and API ids for a context-only message. Its daemon completion
     /// event is a request reply, not a model turn boundary.
     pending_no_reply_message_id: Option<(u64, u64)>,
@@ -204,8 +230,41 @@ impl BridgeState {
     pub fn with_crash_on_disconnect(crash_on_disconnect: bool) -> Self {
         Self {
             crash_on_disconnect,
+            coalesce_tool_input: COALESCE_TOOL_INPUT.load(Ordering::Relaxed),
             ..Self::default()
         }
+    }
+
+    /// Fork: frames for the complete arguments held back for `call_id`, or,
+    /// when the daemon did not label the argument stream, for the oldest
+    /// unlabelled one (reported with the empty call id it arrived with).
+    fn take_coalesced_tool_input(&mut self, call_id: &str) -> Vec<ServerFrame> {
+        let position = |wanted: &str| {
+            self.pending_tool_inputs
+                .iter()
+                .position(|(pending_id, _)| pending_id == wanted)
+        };
+        let Some(index) = position(call_id).or_else(|| position("")) else {
+            return vec![];
+        };
+        let (call_id, arguments) = self.pending_tool_inputs.remove(index);
+        let session_id = self.session_id.clone().unwrap_or_default();
+        let mut frames = Vec::new();
+        let mut rest = arguments.as_str();
+        while !rest.is_empty() {
+            let mut end = rest.len().min(COALESCED_TOOL_INPUT_CHUNK_BYTES);
+            while !rest.is_char_boundary(end) {
+                end -= 1;
+            }
+            let (chunk, tail) = rest.split_at(end);
+            frames.push(ServerFrame::event(ApiEvent::ToolInputDelta {
+                session_id: session_id.clone(),
+                call_id: call_id.clone(),
+                delta: chunk.to_string(),
+            }));
+            rest = tail;
+        }
+        frames
     }
 }
 
@@ -1662,6 +1721,21 @@ impl BridgeState {
                 call_id: event["id"].as_str().unwrap_or("").to_string(),
                 name: event["name"].as_str().unwrap_or("").to_string(),
             })],
+            "tool_input" if self.coalesce_tool_input => {
+                let call_id = event["id"].as_str().unwrap_or("");
+                let delta = event["delta"].as_str().unwrap_or("");
+                match self
+                    .pending_tool_inputs
+                    .iter_mut()
+                    .find(|(pending_id, _)| pending_id == call_id)
+                {
+                    Some((_, arguments)) => arguments.push_str(delta),
+                    None => self
+                        .pending_tool_inputs
+                        .push((call_id.to_string(), delta.to_string())),
+                }
+                vec![]
+            }
             "tool_input" => vec![ServerFrame::event(ApiEvent::ToolInputDelta {
                 session_id: session(self),
                 call_id: event["id"].as_str().unwrap_or("").to_string(),
@@ -1669,6 +1743,7 @@ impl BridgeState {
             })],
             "tool_exec" => {
                 let mut frames = self.finish_text();
+                frames.extend(self.take_coalesced_tool_input(event["id"].as_str().unwrap_or("")));
                 frames.push(ServerFrame::event(ApiEvent::ToolExec {
                     session_id: session(self),
                     call_id: event["id"].as_str().unwrap_or("").to_string(),
@@ -1676,13 +1751,19 @@ impl BridgeState {
                 }));
                 frames
             }
-            "tool_done" => vec![ServerFrame::event(ApiEvent::ToolDone {
-                session_id: session(self),
-                call_id: event["id"].as_str().unwrap_or("").to_string(),
-                name: event["name"].as_str().unwrap_or("").to_string(),
-                output: event["output"].as_str().unwrap_or("").to_string(),
-                error: event["error"].as_str().map(str::to_string),
-            })],
+            "tool_done" => {
+                // Fork: arguments of a call that completed without `tool_exec`.
+                let mut frames =
+                    self.take_coalesced_tool_input(event["id"].as_str().unwrap_or(""));
+                frames.push(ServerFrame::event(ApiEvent::ToolDone {
+                    session_id: session(self),
+                    call_id: event["id"].as_str().unwrap_or("").to_string(),
+                    name: event["name"].as_str().unwrap_or("").to_string(),
+                    output: event["output"].as_str().unwrap_or("").to_string(),
+                    error: event["error"].as_str().map(str::to_string),
+                }));
+                frames
+            }
             "stdin_request" => vec![ServerFrame::event(ApiEvent::StdinRequest {
                 session_id: session(self),
                 request_id: event["request_id"].as_str().unwrap_or("").to_string(),
@@ -1773,6 +1854,8 @@ impl BridgeState {
                     // Any other retained soft interrupts were queued into the
                     // turn which just ended. Their ids will not emit `done`.
                     self.pending_soft_interrupt_ids.clear();
+                    // Fork: arguments of calls that never ran end with the turn.
+                    self.pending_tool_inputs.clear();
                     let mut frames = self.finish_text();
                     self.text_attempt.clear();
                     frames.push(ServerFrame::event(ApiEvent::TurnDone {

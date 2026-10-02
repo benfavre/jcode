@@ -1785,3 +1785,56 @@ fn ndjson_run_text_has_no_leading_separator_when_the_first_turn_was_silent() {
     state.push_answer_text("Only answer.");
     assert_eq!(state.text, "Only answer.");
 }
+
+/// Fork patch: `tool_input.delta` is the complete JSON arguments of one tool
+/// call, reported once before `tool_exec`, however the provider streamed them.
+#[test]
+fn ndjson_run_reports_one_complete_tool_input_per_call() {
+    use crate::protocol::ServerEvent;
+
+    let mut out = Vec::new();
+    let mut state = NdjsonRunState::default();
+    let events = vec![
+        ServerEvent::ToolStart { id: "c1".into(), name: "write".into() },
+        ServerEvent::ToolInput { id: Some("c1".into()), delta: "{\"intent\":\"Create".into() },
+        ServerEvent::ToolStart { id: "c2".into(), name: "read".into() },
+        ServerEvent::ToolInput { id: Some("c2".into()), delta: "{\"intent\":\"Read\"}".into() },
+        ServerEvent::ToolInput { id: Some("c1".into()), delta: " file\",\"n\":null}".into() },
+        ServerEvent::ToolExec { id: "c1".into(), name: "write".into() },
+        ServerEvent::ToolDone { id: "c1".into(), name: "write".into(), output: "ok".into(), error: None },
+        ServerEvent::ToolExec { id: "c2".into(), name: "read".into() },
+        // An unlabelled argument stream belongs to the next executed call.
+        ServerEvent::ToolStart { id: "c3".into(), name: "ls".into() },
+        ServerEvent::ToolInput { id: None, delta: "{\"intent\":".into() },
+        ServerEvent::ToolInput { id: None, delta: "\"List\"}".into() },
+        ServerEvent::ToolExec { id: "c3".into(), name: "ls".into() },
+    ];
+    for event in events {
+        emit_ndjson_event(&mut out, &mut state, event).expect("emit event");
+    }
+
+    let lines: Vec<serde_json::Value> = String::from_utf8(out)
+        .expect("utf8 ndjson")
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("json line"))
+        .collect();
+    let shape: Vec<&str> = lines.iter().map(|line| line["type"].as_str().unwrap()).collect();
+    assert_eq!(
+        shape,
+        [
+            "tool_start", "tool_start", "tool_input", "tool_exec", "tool_done", "tool_input",
+            "tool_exec", "tool_start", "tool_input", "tool_exec",
+        ]
+    );
+    let intents: Vec<String> = lines
+        .iter()
+        .filter(|line| line["type"] == "tool_input")
+        .map(|line| {
+            let arguments: serde_json::Value =
+                serde_json::from_str(line["delta"].as_str().unwrap()).expect("complete JSON");
+            arguments["intent"].as_str().unwrap().to_string()
+        })
+        .collect();
+    assert_eq!(intents, ["Create file", "Read", "List"]);
+    assert!(state.pending_tool_inputs.is_empty());
+}

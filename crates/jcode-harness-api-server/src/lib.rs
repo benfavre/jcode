@@ -294,9 +294,13 @@ pub async fn run_bridge_stdio(legacy_socket: PathBuf) -> Result<()> {
 /// Fork-compatible name for the supervised stdio transport (`jcode api-stdio`).
 ///
 /// It is the same connection as [`run_bridge_stdio`]: one harness API client
-/// on stdin/stdout, no public socket, diagnostics on stderr only.
+/// on stdin/stdout, no public socket, diagnostics on stderr only. The one
+/// difference is that streamed tool arguments are coalesced per call.
 #[cfg(unix)]
 pub async fn run_stdio_bridge(legacy_socket: PathBuf) -> Result<()> {
+    // The supervising host bounds events per session and expects one complete
+    // argument frame per tool call, as before the v0.90 synchronization.
+    translate::set_coalesce_tool_input(true);
     run_bridge_stdio(legacy_socket).await
 }
 

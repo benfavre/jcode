@@ -2065,6 +2065,9 @@ struct RunCommandReport {
 #[derive(Debug, Default)]
 struct NdjsonRunState {
     text: String,
+    /// Fork patch: streamed tool arguments held back per call so `tool_input`
+    /// stays one event carrying the complete JSON arguments.
+    pending_tool_inputs: Vec<(Option<String>, String)>,
     /// Fork patch: a follow-up (auto-poke) turn has started and has produced
     /// no answer text yet. The first text it produces is separated from the
     /// previous turn's answer by a blank line in the final `done.text`.
@@ -2083,6 +2086,34 @@ impl NdjsonRunState {
     /// a silent follow-up leaves no trailing whitespace.
     fn begin_follow_up_turn(&mut self) {
         self.turn_break_pending = true;
+        // Arguments of calls that never ran end with their turn.
+        self.pending_tool_inputs.clear();
+    }
+
+    fn push_tool_input(&mut self, call_id: Option<String>, delta: &str) {
+        match self
+            .pending_tool_inputs
+            .iter_mut()
+            .find(|(pending_id, _)| *pending_id == call_id)
+        {
+            Some((_, arguments)) => arguments.push_str(delta),
+            None => self.pending_tool_inputs.push((call_id, delta.to_string())),
+        }
+    }
+
+    /// Complete arguments streamed for `call_id`, or, when the provider did
+    /// not label its argument stream, the oldest unlabelled arguments.
+    fn take_tool_input(&mut self, call_id: &str) -> Option<String> {
+        let index = self
+            .pending_tool_inputs
+            .iter()
+            .position(|(pending_id, _)| pending_id.as_deref() == Some(call_id))
+            .or_else(|| {
+                self.pending_tool_inputs
+                    .iter()
+                    .position(|(pending_id, _)| pending_id.is_none())
+            })?;
+        Some(self.pending_tool_inputs.remove(index).1)
     }
 
     /// Accumulate streamed answer text for the final `done.text`. Without the
@@ -3281,6 +3312,20 @@ fn write_last_message(path: &Path, text: &str) -> Result<()> {
     Ok(())
 }
 
+fn write_pending_tool_input(
+    stdout: &mut impl Write,
+    state: &mut NdjsonRunState,
+    call_id: &str,
+) -> Result<()> {
+    match state.take_tool_input(call_id) {
+        Some(arguments) => write_json_line(
+            stdout,
+            &serde_json::json!({ "type": "tool_input", "delta": arguments }),
+        ),
+        None => Ok(()),
+    }
+}
+
 fn emit_ndjson_event(
     stdout: &mut impl Write,
     state: &mut NdjsonRunState,
@@ -3308,29 +3353,39 @@ fn emit_ndjson_event(
             stdout,
             &serde_json::json!({ "type": "tool_start", "id": id, "name": name }),
         ),
-        ServerEvent::ToolInput { delta, .. } => write_json_line(
-            stdout,
-            &serde_json::json!({ "type": "tool_input", "delta": delta }),
-        ),
-        ServerEvent::ToolExec { id, name } => write_json_line(
-            stdout,
-            &serde_json::json!({ "type": "tool_exec", "id": id, "name": name }),
-        ),
+        // Fork patch: v0.90 streams tool arguments token by token. Consumers
+        // of this stream parse `tool_input.delta` as the complete JSON
+        // arguments (to show the call's `intent`), so the tokens are held back
+        // and reported once, just before `tool_exec`.
+        ServerEvent::ToolInput { id, delta } => {
+            state.push_tool_input(id, &delta);
+            Ok(())
+        }
+        ServerEvent::ToolExec { id, name } => {
+            write_pending_tool_input(stdout, state, &id)?;
+            write_json_line(
+                stdout,
+                &serde_json::json!({ "type": "tool_exec", "id": id, "name": name }),
+            )
+        }
         ServerEvent::ToolDone {
             id,
             name,
             output,
             error,
-        } => write_json_line(
-            stdout,
-            &serde_json::json!({
-                "type": "tool_done",
-                "id": id,
-                "name": name,
-                "output": output,
-                "error": error,
-            }),
-        ),
+        } => {
+            write_pending_tool_input(stdout, state, &id)?;
+            write_json_line(
+                stdout,
+                &serde_json::json!({
+                    "type": "tool_done",
+                    "id": id,
+                    "name": name,
+                    "output": output,
+                    "error": error,
+                }),
+            )
+        }
         ServerEvent::TokenUsage {
             input,
             output,
