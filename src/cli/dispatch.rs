@@ -230,6 +230,9 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
         }
         #[cfg(unix)]
         Some(Command::ApiStdio) => {
+            // Stdin is the protocol channel: never let a credential or
+            // onboarding prompt read from it (same rule as `api --stdio`).
+            crate::env::set_var("JCODE_NON_INTERACTIVE", "1");
             if let Err(error) = spawn_server(
                 &args.provider,
                 args.model.as_deref(),
