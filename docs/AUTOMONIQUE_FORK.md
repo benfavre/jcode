@@ -11,8 +11,11 @@ headless-engine work needed by Automonique.
 - Upstream branch: `master`
 - Fork remote: `https://github.com/benfavre/jcode.git`
 - Fork branch: `master`
-- Synchronized upstream commit: `6da6124a30b0157dc9981c2fac5045f9590a6a05`
-- Synchronization method: fast-forward, with no rewritten published history
+- Synchronized upstream commit: `2df1f77e920c01b4eb7830cc3c9f74d735e98087`
+  (v0.90.0), merged on branch `fork/upstream-v0.90`
+- Previous baseline: `6da6124a30b0157dc9981c2fac5045f9590a6a05` (fast-forward)
+- Synchronization method: merge of `upstream/master`, with no rewritten
+  published history
 
 The baseline commit remains an upstream commit. Automonique-specific changes
 start after it and land through ordinary pull requests, so `git log` and
@@ -87,3 +90,32 @@ Automonique-specific commits should be small enough that `git diff` against the
 recorded upstream merge base is a useful provenance view. Generated outputs are
 regenerated from their source and are not used to obscure an upstream or local
 change.
+
+## Fork behaviour carried on top of upstream
+
+Kept across the v0.90 synchronization, each small enough to drop on its own:
+
+- `jcode run -` (prompt on stdin), `--output-last-message`, and
+  `JCODE_SERVER_EXECUTABLE` for supervised server spawns.
+- `jcode api-stdio`: the same stdio transport as upstream `jcode api --stdio`,
+  under the name the Automonique daemon launches. The bridge advertises the
+  upstream capability tokens plus `cancellation`, `soft_interrupt`,
+  `stdin_requests`, `history`, `model_catalog`, `reasoning_effort` and `usage`.
+- `stdin_request` / `stdin_response` over the harness API, and terminal turn
+  errors that reply to the failing `send_message`.
+- The operator backend crate and the `jcode platform` cockpit.
+- Null-valued tool arguments are treated as absent for first-party tools
+  (`tool/null_args.rs`).
+- `run --ndjson` separates auto-poke turns with a blank line in `done.text`.
+- Remote (Jev) memory recall is opt-in for unattended `jcode run`: the default
+  `memory_jev_provider = "auto"` is treated as `off` there. Name a concrete
+  provider in `[agents]`, or export `JCODE_MEMORY_JEV_PROVIDER`, to opt in.
+  `memory_jev_provider = "off"` disables it everywhere.
+
+The OpenAI default model is not patched. Deployments that must stay on the
+previous default pin it in the provider home `config.toml`:
+
+```toml
+[provider]
+default_model = "gpt-5.6-sol"
+```
